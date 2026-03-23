@@ -256,4 +256,18 @@ defmodule Dsqlex.ParserTest do
       assert {:error, "Unexpected tokens" <> _} = parse("SELECT 1 2")
     end
   end
+
+  describe "parse/1 - function keywords as identifiers" do
+    test "function keyword used as identifier argument in EVENT()" do
+      {:ok, tokens} = Lexer.tokenize("EVENT(EVENT, EVENT_ONE)")
+      assert {:ok, {:select, {:call, :event, [{:identifier, "EVENT"}, {:identifier, "EVENT_ONE"}]}}} =
+        Parser.parse(tokens)
+    end
+
+    test "function keyword without parens treated as identifier" do
+      {:ok, tokens} = Lexer.tokenize("ROUND + 1")
+      assert {:ok, {:select, {:binary_op, :plus, {:identifier, "ROUND"}, {:number, "1"}}}} =
+        Parser.parse(tokens)
+    end
+  end
 end

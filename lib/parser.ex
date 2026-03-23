@@ -163,6 +163,11 @@ defmodule Dsqlex.Parser do
     end
   end
 
+  # Function keyword used as identifier (e.g., EVENT used as a type name inside EVENT(EVENT, ...))
+  defp parse_primary([{:function, name} | rest]) do
+    {:ok, {:identifier, Atom.to_string(name) |> String.upcase()}, rest}
+  end
+
   defp parse_primary(tokens), do: {:error, "Unexpected token: #{inspect(tokens)}"}
 
   # ============================================================
