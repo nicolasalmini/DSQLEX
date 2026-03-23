@@ -264,7 +264,7 @@ DSQLEX uses a classic three-stage pipeline:
 mix test
 ```
 
-The test suite includes 153 tests covering:
+The test suite includes 162 tests covering:
 - Lexer token generation
 - Parser AST construction
 - Evaluator computations

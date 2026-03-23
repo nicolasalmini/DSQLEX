@@ -20,5 +20,9 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-dsl_poc-*.tar
+dsqlex-*.tar
+
+# IDE / editor files
+.cursorrules
+.windsurf/
 

@@ -1,1 +1,0 @@
-/Users/nicolas.salmini/.windsurf/workflows/learn.md
