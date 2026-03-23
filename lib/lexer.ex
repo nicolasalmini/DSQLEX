@@ -51,6 +51,9 @@ defmodule Dsqlex.Lexer do
   defp do_tokenize(<<"<", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :lt} | tokens])
   defp do_tokenize(<<">", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :gt} | tokens])
 
+  # catch-all for unrecognized characters (e.g. trailing dot while user is still typing)
+  defp do_tokenize(<<char, _rest::binary>>, _tokens), do: {:error, "Unexpected character: '#{<<char>>}'"}
+
   # handle numbers
   defp consume_number(input), do: consume_number(input, "")
 
