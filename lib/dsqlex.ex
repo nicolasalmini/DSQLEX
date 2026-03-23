@@ -67,10 +67,10 @@ defmodule Dsqlex do
       iex> Dsqlex.eval("x * 2", %{"x" => Decimal.new("50")})
       {:ok, Decimal.new("100")}
   """
-  def eval(expression, context) when is_binary(expression) and is_map(context) do
+  def eval(expression, context, opts \\ []) when is_binary(expression) and is_map(context) do
     with {:ok, tokens} <- Lexer.tokenize(expression),
          {:ok, ast} <- Parser.parse(tokens),
-         {:ok, result} <- Evaluator.evaluate(ast, context) do
+         {:ok, result} <- Evaluator.evaluate(ast, context, opts) do
       {:ok, result}
     end
   end

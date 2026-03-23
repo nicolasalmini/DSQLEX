@@ -286,6 +286,92 @@ defmodule Dsqlex.IntegrationTest do
     end
   end
 
+  describe "cross-event references" do
+    # Simulates a registry of event formulas (like an ETS table)
+    @event_formulas %{
+      "event_a" => "x + y",
+      "event_b" => "z - event_a",
+      "event_c" => "event_a + event_b",
+      "event_circular" => "event_circular + 1"
+    }
+
+    @ref_context %{
+      "x" => Decimal.new("100"),
+      "y" => Decimal.new("20"),
+      "z" => Decimal.new("200")
+    }
+
+    defp make_resolver(formulas, context) do
+      fn name, visited ->
+        case Map.fetch(formulas, name) do
+          {:ok, formula} ->
+            new_visited = MapSet.put(visited, name)
+            opts = [resolver: make_resolver(formulas, context), visited: new_visited]
+            Dsqlex.eval(formula, context, opts)
+
+          :error ->
+            {:error, "Unknown event: #{name}"}
+        end
+      end
+    end
+
+    test "event_b references event_a" do
+      # event_a = x + y = 120
+      # event_b = z - event_a = 200 - 120 = 80
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_b", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("80"))
+    end
+
+    test "event_c references both event_a and event_b" do
+      # event_a = 120, event_b = 80
+      # event_c = event_a + event_b = 200
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_c", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("200"))
+    end
+
+    test "direct event reference" do
+      # event_a = x + y = 120
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_a", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("120"))
+    end
+
+    test "circular reference is detected" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:error, "Circular reference detected: event_circular"} =
+        Dsqlex.eval("event_circular", @ref_context, resolver: resolver)
+    end
+
+    test "unknown event returns error" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:error, "Unknown event: nonexistent_event"} =
+        Dsqlex.eval("nonexistent_event", @ref_context, resolver: resolver)
+    end
+
+    test "event reference in arithmetic expression" do
+      # (event_a * 2) = 240
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_a * 2", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("240"))
+    end
+
+    test "event reference in CASE expression" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+
+      result = Dsqlex.eval("""
+        CASE
+          WHEN event_a > 100 THEN event_b
+          ELSE 0
+        END
+      """, @ref_context, resolver: resolver)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("80"))
+    end
+  end
+
   describe "edge cases" do
     test "empty string literal" do
       assert {:ok, ""} = run("SELECT ''")

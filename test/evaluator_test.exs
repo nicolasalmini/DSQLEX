@@ -348,4 +348,72 @@ defmodule Dsqlex.EvaluatorTest do
       assert {:error, _} = Evaluator.evaluate(ast, @context)
     end
   end
+
+  describe "evaluate/3 - resolver" do
+    test "resolves unknown identifier via resolver function" do
+      resolver = fn "event_a", _visited ->
+        {:ok, Decimal.new("42")}
+      end
+
+      # event_a + 10
+      ast = select(binop(:plus, ident("event_a"), num("10")))
+      assert {:ok, result} = Evaluator.evaluate(ast, %{}, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("52"))
+    end
+
+    test "context takes precedence over resolver" do
+      resolver = fn _name, _visited ->
+        {:ok, Decimal.new("999")}
+      end
+
+      ast = select(ident("x"))
+      assert {:ok, result} = Evaluator.evaluate(ast, @context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("100.00"))
+    end
+
+    test "resolver error is propagated" do
+      resolver = fn "missing_event", _visited ->
+        {:error, "Event not found: missing_event"}
+      end
+
+      ast = select(ident("missing_event"))
+      assert {:error, "Event not found: missing_event"} = Evaluator.evaluate(ast, %{}, resolver: resolver)
+    end
+
+    test "circular reference is detected" do
+      resolver = fn "event_a", _visited ->
+        {:ok, Decimal.new("1")}
+      end
+
+      ast = select(ident("event_a"))
+      opts = [resolver: resolver, visited: MapSet.new(["event_a"])]
+      assert {:error, "Circular reference detected: event_a"} = Evaluator.evaluate(ast, %{}, opts)
+    end
+
+    test "resolver works inside arithmetic expressions" do
+      resolver = fn
+        "event_a", _visited -> {:ok, Decimal.new("100")}
+        "event_b", _visited -> {:ok, Decimal.new("30")}
+      end
+
+      # event_a - event_b
+      ast = select(binop(:minus, ident("event_a"), ident("event_b")))
+      assert {:ok, result} = Evaluator.evaluate(ast, %{}, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("70"))
+    end
+
+    test "resolver works inside CASE/WHEN" do
+      resolver = fn "event_a", _visited ->
+        {:ok, Decimal.new("50")}
+      end
+
+      # CASE WHEN event_a > 10 THEN event_a ELSE 0 END
+      ast = select(case_expr([
+        when_clause(binop(:gt, ident("event_a"), num("10")), ident("event_a"))
+      ], num("0")))
+
+      assert {:ok, result} = Evaluator.evaluate(ast, %{}, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("50"))
+    end
+  end
 end
