@@ -44,23 +44,40 @@ defmodule Dsqlex.Evaluator do
         value
 
       :error ->
-        resolver = Keyword.get(opts, :resolver)
-
-        if resolver do
-          visited = Keyword.get(opts, :visited, MapSet.new())
-
-          if MapSet.member?(visited, name) do
-            raise "Circular reference detected: #{name}"
-          end
-
-          case resolver.(name, visited) do
-            {:ok, value} -> value
-            {:error, reason} -> raise reason
-          end
+        # Try dot-path access for nested maps (e.g. "spread.recognition.payment_percentage")
+        if String.contains?(name, ".") do
+          resolve_dot_path(name, context)
         else
-          raise "Unknown field: #{name}"
+          resolver = Keyword.get(opts, :resolver)
+
+          if resolver do
+            visited = Keyword.get(opts, :visited, MapSet.new())
+
+            if MapSet.member?(visited, name) do
+              raise "Circular reference detected: #{name}"
+            end
+
+            case resolver.(name, visited) do
+              {:ok, value} -> value
+              {:error, reason} -> raise reason
+            end
+          else
+            raise "Unknown field: #{name}"
+          end
         end
     end
+  end
+
+  defp resolve_dot_path(path, context) do
+    parts = String.split(path, ".")
+
+    Enum.reduce(parts, context, fn key, acc ->
+      cond do
+        is_map(acc) && Map.has_key?(acc, key) -> Map.get(acc, key)
+        is_map(acc) -> raise "Unknown field: #{path} (failed at '#{key}')"
+        true -> raise "Cannot access '#{key}' on non-map value in path '#{path}'"
+      end
+    end)
   end
 
   # ============================================================

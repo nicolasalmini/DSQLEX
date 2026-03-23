@@ -71,6 +71,11 @@ defmodule Dsqlex.Lexer do
     consume_identifier(rest, acc <> <<c>>)
   end
 
+  # dot-access: consume '.' when followed by a letter or underscore (e.g. spread.recognition.payment_percentage)
+  defp consume_identifier(<<".", c, rest::binary>>, acc) when c in ?a..?z or c in ?A..?Z or c == ?_ do
+    consume_identifier(rest, acc <> "." <> <<c>>)
+  end
+
   defp consume_identifier(rest, acc), do: {acc, rest}
 
   defp consume_string(input), do: consume_string(input, "")

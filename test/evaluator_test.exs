@@ -417,6 +417,38 @@ defmodule Dsqlex.EvaluatorTest do
     end
   end
 
+  describe "evaluate/3 - dot-path nested map access" do
+    test "simple dot path accesses nested map" do
+      ast = {:select, {:identifier, "spread.recognition"}}
+      context = %{"spread" => %{"recognition" => Decimal.new("1.02")}}
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("1.02"))
+    end
+
+    test "multi-level dot path" do
+      ast = {:select, {:identifier, "spread.recognition.payment_percentage"}}
+      context = %{"spread" => %{"recognition" => %{"payment_percentage" => Decimal.new("2.9")}}}
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("2.9"))
+    end
+
+    test "dot path in arithmetic expression" do
+      ast = {:select, {:binary_op, :multiply, {:identifier, "amount_ext"}, {:identifier, "spread.recognition.settlement_percentage"}}}
+      context = %{
+        "amount_ext" => Decimal.new("100"),
+        "spread" => %{"recognition" => %{"settlement_percentage" => Decimal.new("1.02")}}
+      }
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("102.00"))
+    end
+
+    test "dot path with unknown nested key raises error" do
+      ast = {:select, {:identifier, "spread.nonexistent"}}
+      context = %{"spread" => %{"recognition" => Decimal.new("1.02")}}
+      assert {:error, "Unknown field: spread.nonexistent" <> _} = Evaluator.evaluate(ast, context)
+    end
+  end
+
   describe "evaluate/3 - EVENT() function" do
     # Mock event resolver that looks up formulas and evaluates them
     defp mock_event_resolver(formulas) do

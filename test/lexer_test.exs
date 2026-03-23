@@ -142,6 +142,29 @@ defmodule Dsqlex.LexerTest do
     end
   end
 
+  describe "tokenize/1 - dot-path identifiers" do
+    test "simple dot path" do
+      assert {:ok, [{:identifier, "spread.recognition"}]} = Lexer.tokenize("spread.recognition")
+    end
+
+    test "multi-level dot path" do
+      assert {:ok, [{:identifier, "spread.recognition.payment_percentage"}]} =
+        Lexer.tokenize("spread.recognition.payment_percentage")
+    end
+
+    test "dot path in expression" do
+      assert {:ok, [
+        {:identifier, "amount_ext"},
+        {:operator, :multiply},
+        {:identifier, "spread.recognition.settlement_percentage"}
+      ]} = Lexer.tokenize("amount_ext * spread.recognition.settlement_percentage")
+    end
+
+    test "dot not consumed when followed by number (decimal)" do
+      assert {:ok, [{:number, "1.5"}]} = Lexer.tokenize("1.5")
+    end
+  end
+
   describe "tokenize/1 - whitespace handling" do
     test "ignores spaces" do
       assert {:ok, [{:number, "1"}, {:operator, :plus}, {:number, "2"}]} =
