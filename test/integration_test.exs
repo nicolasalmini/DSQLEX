@@ -372,6 +372,122 @@ defmodule Dsqlex.IntegrationTest do
     end
   end
 
+  describe "EVENT() function - end to end" do
+    defp mock_event_resolver(formulas) do
+      fn type, subtype, eval_context, opts ->
+        key = "#{type}.#{subtype}"
+        case Map.fetch(formulas, key) do
+          {:ok, formula} -> Dsqlex.eval(formula, eval_context, opts)
+          :error -> {:error, "No formula found for EVENT(#{type}, #{subtype})"}
+        end
+      end
+    end
+
+    defp run_with_events(expression, context, formulas) do
+      resolver = mock_event_resolver(formulas)
+      Dsqlex.eval(expression, context, event_resolver: resolver)
+    end
+
+    test "EVENT with 2 args uses current context" do
+      formulas = %{"PAYMENT_CONFIRMED.FEE" => "amount * rate"}
+      context = %{"amount" => Decimal.new("100"), "rate" => Decimal.new("0.05")}
+
+      assert {:ok, result} = run_with_events("EVENT(PAYMENT_CONFIRMED, FEE)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("5.000"))
+    end
+
+    test "EVENT with 3 args - map context source" do
+      formulas = %{"P.REC" => "amount_local"}
+      context = %{
+        "amount_local" => Decimal.new("999"),
+        "payment_normalized" => %{"amount_local" => Decimal.new("500")}
+      }
+
+      assert {:ok, result} = run_with_events("EVENT(P, REC, payment_normalized)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("500"))
+    end
+
+    test "EVENT with 3 args - list context source (implicit sum)" do
+      formulas = %{"R.REC" => "amount_local"}
+      context = %{
+        "refunds_normalized" => [
+          %{"amount_local" => Decimal.new("50")},
+          %{"amount_local" => Decimal.new("30")}
+        ]
+      }
+
+      assert {:ok, result} = run_with_events("EVENT(R, REC, refunds_normalized)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("80"))
+    end
+
+    test "chargeback pattern: payment recognition minus refund recognition" do
+      formulas = %{
+        "PAYMENT_CONFIRMED.PAYMENT_RECOGNITION" => "amount_local",
+        "REFUND_CONFIRMED.REFUND_RECOGNITION" => "amount_local"
+      }
+      context = %{
+        "payment_normalized" => %{"amount_local" => Decimal.new("1000")},
+        "refunds_normalized" => [
+          %{"amount_local" => Decimal.new("200")},
+          %{"amount_local" => Decimal.new("100")}
+        ]
+      }
+
+      result = run_with_events(
+        "EVENT(PAYMENT_CONFIRMED, PAYMENT_RECOGNITION, payment_normalized) - EVENT(REFUND_CONFIRMED, REFUND_RECOGNITION, refunds_normalized)",
+        context, formulas
+      )
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("700"))
+    end
+
+    test "EVENT in CASE expression" do
+      formulas = %{"P.FEE" => "amount * rate"}
+      context = %{
+        "currency" => "USD",
+        "amount" => Decimal.new("100"),
+        "rate" => Decimal.new("0.03")
+      }
+
+      result = run_with_events("""
+        CASE
+          WHEN currency = 'USD' THEN EVENT(P, FEE)
+          ELSE 0
+        END
+      """, context, formulas)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("3.00"))
+    end
+
+    test "circular EVENT reference detected" do
+      formulas = %{
+        "A.X" => "EVENT(B, Y)",
+        "B.Y" => "EVENT(A, X)"
+      }
+
+      assert {:error, "Circular reference detected: A.X"} =
+        run_with_events("EVENT(A, X)", %{}, formulas)
+    end
+
+    test "EVENT with missing formula returns error" do
+      assert {:error, "No formula found for EVENT(UNKNOWN, MISSING_SUBTYPE)"} =
+        run_with_events("EVENT(UNKNOWN, MISSING_SUBTYPE)", %{}, %{})
+    end
+
+    test "nested EVENT: event_b references event_a" do
+      formulas = %{
+        "A.CALC" => "amount * 2",
+        "B.CALC" => "EVENT(A, CALC) + 10"
+      }
+      context = %{"amount" => Decimal.new("50")}
+
+      # B.CALC = EVENT(A, CALC) + 10 = (50 * 2) + 10 = 110
+      assert {:ok, result} = run_with_events("EVENT(B, CALC)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("110"))
+    end
+  end
+
   describe "edge cases" do
     test "empty string literal" do
       assert {:ok, ""} = run("SELECT ''")

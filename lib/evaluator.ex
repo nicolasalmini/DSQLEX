@@ -160,6 +160,58 @@ defmodule Dsqlex.Evaluator do
     |> Enum.join()
   end
 
+  # EVENT(type, subtype) — evaluate referenced formula with current context
+  defp do_eval({:call, :event, [{:identifier, type}, {:identifier, subtype}]}, context, opts) do
+    resolve_event(type, subtype, context, opts)
+  end
+
+  # EVENT(type, subtype, context_source) — evaluate referenced formula with sub-entity context
+  # If context_source resolves to a list, evaluates per item and sums the results
+  defp do_eval({:call, :event, [{:identifier, type}, {:identifier, subtype}, {:identifier, source}]}, context, opts) do
+    case Map.fetch(context, source) do
+      {:ok, sub_context} when is_list(sub_context) ->
+        sub_context
+        |> Enum.map(fn item -> resolve_event(type, subtype, item, opts) end)
+        |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
+
+      {:ok, sub_context} when is_map(sub_context) ->
+        resolve_event(type, subtype, sub_context, opts)
+
+      {:ok, _} ->
+        raise "EVENT context source '#{source}' must be a map or list of maps"
+
+      :error ->
+        raise "EVENT context source '#{source}' not found in context"
+    end
+  end
+
+  defp do_eval({:call, :event, _args}, _context, _opts) do
+    raise "EVENT requires 2 or 3 arguments: EVENT(type, subtype) or EVENT(type, subtype, context_source)"
+  end
+
+  defp resolve_event(type, subtype, eval_context, opts) do
+    event_resolver = Keyword.get(opts, :event_resolver)
+
+    unless event_resolver do
+      raise "EVENT() calls require an :event_resolver option"
+    end
+
+    event_key = "#{type}.#{subtype}"
+    visited = Keyword.get(opts, :visited, MapSet.new())
+
+    if MapSet.member?(visited, event_key) do
+      raise "Circular reference detected: #{event_key}"
+    end
+
+    new_visited = MapSet.put(visited, event_key)
+    new_opts = Keyword.put(opts, :visited, new_visited)
+
+    case event_resolver.(type, subtype, eval_context, new_opts) do
+      {:ok, result} -> result
+      {:error, reason} -> raise reason
+    end
+  end
+
   # ============================================================
   # CASE/WHEN helpers
   # ============================================================

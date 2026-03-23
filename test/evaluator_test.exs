@@ -416,4 +416,189 @@ defmodule Dsqlex.EvaluatorTest do
       assert Decimal.equal?(result, Decimal.new("50"))
     end
   end
+
+  describe "evaluate/3 - EVENT() function" do
+    # Mock event resolver that looks up formulas and evaluates them
+    defp mock_event_resolver(formulas) do
+      fn type, subtype, eval_context, opts ->
+        key = "#{type}.#{subtype}"
+        case Map.fetch(formulas, key) do
+          {:ok, formula} ->
+            Dsqlex.eval(formula, eval_context, opts)
+          :error ->
+            {:error, "No formula found for EVENT(#{type}, #{subtype})"}
+        end
+      end
+    end
+
+    test "EVENT with 2 args - evaluates with current context" do
+      formulas = %{"PAYMENT_CONFIRMED.PROCESSING_FEE" => "amount_local * rate"}
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "amount_local" => Decimal.new("100"),
+        "rate" => Decimal.new("0.05")
+      }
+
+      # EVENT(PAYMENT_CONFIRMED, PROCESSING_FEE)
+      ast = select(call(:event, [ident("PAYMENT_CONFIRMED"), ident("PROCESSING_FEE")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("5.000"))
+    end
+
+    test "EVENT with 3 args - single map context source" do
+      formulas = %{"PAYMENT_CONFIRMED.PAYMENT_RECOGNITION" => "amount_local"}
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "amount_local" => Decimal.new("999"),
+        "payment_normalized" => %{"amount_local" => Decimal.new("500")}
+      }
+
+      # EVENT(PAYMENT_CONFIRMED, PAYMENT_RECOGNITION, payment_normalized)
+      ast = select(call(:event, [ident("PAYMENT_CONFIRMED"), ident("PAYMENT_RECOGNITION"), ident("payment_normalized")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("500"))
+    end
+
+    test "EVENT with 3 args - list context source (implicit sum)" do
+      formulas = %{"REFUND_CONFIRMED.REFUND_RECOGNITION" => "amount_local"}
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "refunds_normalized" => [
+          %{"amount_local" => Decimal.new("50")},
+          %{"amount_local" => Decimal.new("30")},
+          %{"amount_local" => Decimal.new("20")}
+        ]
+      }
+
+      # EVENT(REFUND_CONFIRMED, REFUND_RECOGNITION, refunds_normalized) => 50 + 30 + 20 = 100
+      ast = select(call(:event, [ident("REFUND_CONFIRMED"), ident("REFUND_RECOGNITION"), ident("refunds_normalized")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("100"))
+    end
+
+    test "EVENT with empty list context source returns zero" do
+      formulas = %{"REFUND_CONFIRMED.REFUND_RECOGNITION" => "amount_local"}
+      resolver = mock_event_resolver(formulas)
+
+      context = %{"refunds_normalized" => []}
+
+      ast = select(call(:event, [ident("REFUND_CONFIRMED"), ident("REFUND_RECOGNITION"), ident("refunds_normalized")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("0"))
+    end
+
+    test "chargeback pattern: payment - sum(refunds)" do
+      formulas = %{
+        "PAYMENT_CONFIRMED.PAYMENT_RECOGNITION" => "amount_local",
+        "REFUND_CONFIRMED.REFUND_RECOGNITION" => "amount_local"
+      }
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "payment_normalized" => %{"amount_local" => Decimal.new("500")},
+        "refunds_normalized" => [
+          %{"amount_local" => Decimal.new("50")},
+          %{"amount_local" => Decimal.new("30")}
+        ]
+      }
+
+      # EVENT(PAYMENT, RECOGNITION, payment_normalized) - EVENT(REFUND, RECOGNITION, refunds_normalized)
+      ast = select(binop(:minus,
+        call(:event, [ident("PAYMENT_CONFIRMED"), ident("PAYMENT_RECOGNITION"), ident("payment_normalized")]),
+        call(:event, [ident("REFUND_CONFIRMED"), ident("REFUND_RECOGNITION"), ident("refunds_normalized")])
+      ))
+
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("420"))
+    end
+
+    test "EVENT errors when no event_resolver provided" do
+      ast = select(call(:event, [ident("TYPE"), ident("SUBTYPE")]))
+      assert {:error, "EVENT() calls require an :event_resolver option"} =
+        Evaluator.evaluate(ast, %{})
+    end
+
+    test "EVENT errors when formula not found" do
+      resolver = mock_event_resolver(%{})
+      ast = select(call(:event, [ident("UNKNOWN"), ident("EVENT")]))
+      assert {:error, "No formula found for EVENT(UNKNOWN, EVENT)"} =
+        Evaluator.evaluate(ast, %{}, event_resolver: resolver)
+    end
+
+    test "EVENT errors when context source not found" do
+      resolver = mock_event_resolver(%{"T.S" => "x"})
+      ast = select(call(:event, [ident("T"), ident("S"), ident("missing_field")]))
+      assert {:error, "EVENT context source 'missing_field' not found in context"} =
+        Evaluator.evaluate(ast, %{}, event_resolver: resolver)
+    end
+
+    test "EVENT errors with wrong number of arguments" do
+      resolver = mock_event_resolver(%{})
+      ast = select(call(:event, [ident("ONLY_ONE")]))
+      assert {:error, "EVENT requires 2 or 3 arguments" <> _} =
+        Evaluator.evaluate(ast, %{}, event_resolver: resolver)
+    end
+
+    test "EVENT circular reference detection" do
+      # event_a calls event_b, event_b calls event_a
+      formulas = %{
+        "A.X" => "EVENT(B, Y)",
+        "B.Y" => "EVENT(A, X)"
+      }
+      resolver = mock_event_resolver(formulas)
+
+      ast = select(call(:event, [ident("A"), ident("X")]))
+      assert {:error, "Circular reference detected: A.X"} =
+        Evaluator.evaluate(ast, %{}, event_resolver: resolver)
+    end
+
+    test "EVENT in CASE expression" do
+      formulas = %{"P.FEE" => "amount * rate"}
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "currency" => "USD",
+        "amount" => Decimal.new("100"),
+        "rate" => Decimal.new("0.03")
+      }
+
+      # CASE WHEN currency = 'USD' THEN EVENT(P, FEE) ELSE 0 END
+      ast = select(case_expr([
+        when_clause(binop(:eq, ident("currency"), str("USD")),
+          call(:event, [ident("P"), ident("FEE")]))
+      ], num("0")))
+
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("3.00"))
+    end
+
+    test "EVENT arithmetic with scalar and list context" do
+      formulas = %{
+        "P.REC" => "amount_local",
+        "R.REC" => "amount_local"
+      }
+      resolver = mock_event_resolver(formulas)
+
+      context = %{
+        "payment_normalized" => %{"amount_local" => Decimal.new("1000")},
+        "refunds_normalized" => [
+          %{"amount_local" => Decimal.new("100")},
+          %{"amount_local" => Decimal.new("200")},
+          %{"amount_local" => Decimal.new("150")}
+        ]
+      }
+
+      # EVENT(P, REC, payment_normalized) - EVENT(R, REC, refunds_normalized) = 1000 - 450 = 550
+      ast = select(binop(:minus,
+        call(:event, [ident("P"), ident("REC"), ident("payment_normalized")]),
+        call(:event, [ident("R"), ident("REC"), ident("refunds_normalized")])
+      ))
+
+      assert {:ok, result} = Evaluator.evaluate(ast, context, event_resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("550"))
+    end
+  end
 end

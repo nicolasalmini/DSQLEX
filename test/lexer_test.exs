@@ -130,6 +130,12 @@ defmodule Dsqlex.LexerTest do
       assert {:ok, [{:function, :coalesce}]} = Lexer.tokenize("NVL")
     end
 
+    test "EVENT function" do
+      assert {:ok, [{:function, :event}]} = Lexer.tokenize("EVENT")
+      assert {:ok, [{:function, :event}]} = Lexer.tokenize("event")
+      assert {:ok, [{:function, :event}]} = Lexer.tokenize("Event")
+    end
+
     test "functions are case-insensitive" do
       assert {:ok, [{:function, :round}]} = Lexer.tokenize("round")
       assert {:ok, [{:function, :round}]} = Lexer.tokenize("Round")
