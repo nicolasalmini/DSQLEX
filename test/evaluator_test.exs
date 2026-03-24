@@ -447,6 +447,51 @@ defmodule Dsqlex.EvaluatorTest do
       context = %{"spread" => %{"recognition" => Decimal.new("1.02")}}
       assert {:error, "Unknown field: spread.nonexistent" <> _} = Evaluator.evaluate(ast, context)
     end
+
+    test "dot path through list of maps sums numeric values" do
+      ast = {:select, {:identifier, "refunds_normalized.refund_amount_local"}}
+      context = %{
+        "refunds_normalized" => [
+          %{"refund_amount_local" => Decimal.new("100.00")},
+          %{"refund_amount_local" => Decimal.new("50.00")},
+          %{"refund_amount_local" => Decimal.new("25.00")}
+        ]
+      }
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("175.00"))
+    end
+
+    test "dot path through list with nested map access sums values" do
+      ast = {:select, {:identifier, "refunds_normalized.spread.recognition.payment_percentage"}}
+      context = %{
+        "refunds_normalized" => [
+          %{"spread" => %{"recognition" => %{"payment_percentage" => Decimal.new("1.5")}}},
+          %{"spread" => %{"recognition" => %{"payment_percentage" => Decimal.new("2.5")}}}
+        ]
+      }
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("4.0"))
+    end
+
+    test "dot path through list returns list for non-numeric values" do
+      ast = {:select, {:identifier, "refunds_normalized.status"}}
+      context = %{
+        "refunds_normalized" => [
+          %{"status" => "CO"},
+          %{"status" => "PE"}
+        ]
+      }
+      assert {:ok, ["CO", "PE"]} = Evaluator.evaluate(ast, context)
+    end
+
+    test "dot path through single map still works" do
+      ast = {:select, {:identifier, "payment_normalized.amount_local"}}
+      context = %{
+        "payment_normalized" => %{"amount_local" => Decimal.new("500.00")}
+      }
+      assert {:ok, result} = Evaluator.evaluate(ast, context)
+      assert Decimal.equal?(result, Decimal.new("500.00"))
+    end
   end
 
   describe "evaluate/3 - EVENT() function" do
