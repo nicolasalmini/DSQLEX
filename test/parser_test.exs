@@ -251,6 +251,54 @@ defmodule Dsqlex.ParserTest do
     end
   end
 
+  describe "parse/1 - IN and NOT IN" do
+    test "parses simple IN" do
+      assert {:ok, {:select, {:in, {:identifier, "x"}, [{:string, "a"}, {:string, "b"}]}}} =
+        parse("x IN ('a', 'b')")
+    end
+
+    test "parses IN with numbers" do
+      assert {:ok, {:select, {:in, {:identifier, "x"}, [{:number, "1"}, {:number, "2"}, {:number, "3"}]}}} =
+        parse("x IN (1, 2, 3)")
+    end
+
+    test "parses NOT IN" do
+      assert {:ok, {:select, {:not_in, {:identifier, "x"}, [{:string, "a"}, {:string, "b"}]}}} =
+        parse("x NOT IN ('a', 'b')")
+    end
+
+    test "parses IN with single item" do
+      assert {:ok, {:select, {:in, {:identifier, "x"}, [{:string, "a"}]}}} =
+        parse("x IN ('a')")
+    end
+
+    test "parses IN combined with AND" do
+      assert {:ok, {:select, {:binary_op, :and, {:in, _, _}, {:binary_op, :gt, _, _}}}} =
+        parse("x IN ('a', 'b') AND y > 10")
+    end
+
+    test "rejects IN without closing paren" do
+      assert {:error, _} = parse("x IN ('a', 'b'")
+    end
+  end
+
+  describe "parse/1 - LIKE and NOT LIKE" do
+    test "parses simple LIKE" do
+      assert {:ok, {:select, {:like, {:identifier, "name"}, {:string, "%test%"}}}} =
+        parse("name LIKE '%test%'")
+    end
+
+    test "parses NOT LIKE" do
+      assert {:ok, {:select, {:not_like, {:identifier, "name"}, {:string, "%test%"}}}} =
+        parse("name NOT LIKE '%test%'")
+    end
+
+    test "parses LIKE combined with AND" do
+      assert {:ok, {:select, {:binary_op, :and, {:like, _, _}, {:binary_op, :eq, _, _}}}} =
+        parse("name LIKE '%test%' AND status = 'active'")
+    end
+  end
+
   describe "parse/1 - error handling" do
     test "rejects unexpected tokens after expression" do
       assert {:error, "Unexpected tokens" <> _} = parse("SELECT 1 2")

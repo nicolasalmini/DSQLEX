@@ -266,6 +266,70 @@ defmodule Dsqlex.LexerTest do
     end
   end
 
+  describe "tokenize/1 - IN and LIKE" do
+    test "IN keyword" do
+      assert {:ok, tokens} = Lexer.tokenize("x IN ('a', 'b')")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:keyword, :in},
+        {:lparen},
+        {:string, "a"},
+        {:comma},
+        {:string, "b"},
+        {:rparen}
+      ]
+    end
+
+    test "NOT IN keywords" do
+      assert {:ok, tokens} = Lexer.tokenize("x NOT IN (1, 2, 3)")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:keyword, :not},
+        {:keyword, :in},
+        {:lparen},
+        {:number, "1"},
+        {:comma},
+        {:number, "2"},
+        {:comma},
+        {:number, "3"},
+        {:rparen}
+      ]
+    end
+
+    test "LIKE keyword" do
+      assert {:ok, tokens} = Lexer.tokenize("name LIKE '%test%'")
+
+      assert tokens == [
+        {:identifier, "name"},
+        {:keyword, :like},
+        {:string, "%test%"}
+      ]
+    end
+
+    test "NOT LIKE keywords" do
+      assert {:ok, tokens} = Lexer.tokenize("name NOT LIKE '%test%'")
+
+      assert tokens == [
+        {:identifier, "name"},
+        {:keyword, :not},
+        {:keyword, :like},
+        {:string, "%test%"}
+      ]
+    end
+
+    test "IN and LIKE are case insensitive" do
+      assert {:ok, tokens1} = Lexer.tokenize("x in ('a')")
+      assert {:ok, tokens2} = Lexer.tokenize("x IN ('a')")
+      assert tokens1 == tokens2
+
+      assert {:ok, tokens3} = Lexer.tokenize("x like '%a'")
+      assert {:ok, tokens4} = Lexer.tokenize("x LIKE '%a'")
+      assert tokens3 == tokens4
+    end
+  end
+
   describe "tokenize/1 - empty input" do
     test "empty string returns empty list" do
       assert {:ok, []} = Lexer.tokenize("")

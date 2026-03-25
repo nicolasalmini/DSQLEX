@@ -166,6 +166,34 @@ defmodule Dsqlex.Evaluator do
   end
 
   # ============================================================
+  # IN / NOT IN
+  # ============================================================
+  defp do_eval({:in, expr, items}, context, opts) do
+    value = do_eval(expr, context, opts)
+    Enum.any?(items, fn item -> compare_values(value, do_eval(item, context, opts)) == :eq end)
+  end
+
+  defp do_eval({:not_in, expr, items}, context, opts) do
+    value = do_eval(expr, context, opts)
+    not Enum.any?(items, fn item -> compare_values(value, do_eval(item, context, opts)) == :eq end)
+  end
+
+  # ============================================================
+  # LIKE / NOT LIKE (case-insensitive, MySQL/MariaDB default)
+  # ============================================================
+  defp do_eval({:like, expr, pattern_expr}, context, opts) do
+    value = do_eval(expr, context, opts) |> to_string()
+    pattern = do_eval(pattern_expr, context, opts) |> to_string()
+    like_match?(value, pattern)
+  end
+
+  defp do_eval({:not_like, expr, pattern_expr}, context, opts) do
+    value = do_eval(expr, context, opts) |> to_string()
+    pattern = do_eval(pattern_expr, context, opts) |> to_string()
+    not like_match?(value, pattern)
+  end
+
+  # ============================================================
   # CASE expression
   # ============================================================
   defp do_eval({:case_expr, when_clauses, else_clause}, context, opts) do
@@ -297,4 +325,22 @@ defmodule Dsqlex.Evaluator do
   defp compare_values(a, b) when a == b, do: :eq
   defp compare_values(a, b) when a < b, do: :lt
   defp compare_values(a, b) when a > b, do: :gt
+
+  # Convert a SQL LIKE pattern to an Elixir regex and test (case-insensitive)
+  # % = any sequence of characters, _ = any single character
+  defp like_match?(value, pattern) do
+    # 1. Replace LIKE wildcards with placeholders before escaping
+    # 2. Escape remaining regex-special chars
+    # 3. Replace placeholders with regex equivalents
+    regex_str =
+      pattern
+      |> String.replace("%", "\x00PCT\x00")
+      |> String.replace("_", "\x00UND\x00")
+      |> Regex.escape()
+      |> String.replace("\x00PCT\x00", ".*")
+      |> String.replace("\x00UND\x00", ".")
+
+    {:ok, regex} = Regex.compile("^#{regex_str}$", "i")
+    Regex.match?(regex, value)
+  end
 end

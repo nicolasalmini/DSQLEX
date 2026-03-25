@@ -528,4 +528,75 @@ defmodule Dsqlex.IntegrationTest do
       assert {:ok, _} = run("ROUND(price, 2)")
     end
   end
+
+  describe "IN operator" do
+    test "string IN list - match" do
+      assert {:ok, true} = run("category IN ('A', 'B', 'C')")
+    end
+
+    test "string IN list - no match" do
+      assert {:ok, false} = run("category IN ('X', 'Y')")
+    end
+
+    test "number IN list" do
+      context = %{"country_id" => Decimal.new("33")}
+      assert {:ok, true} = run("country_id IN (33, 44, 55)", context)
+    end
+
+    test "NOT IN" do
+      assert {:ok, true} = run("category NOT IN ('X', 'Y')")
+      assert {:ok, false} = run("category NOT IN ('A', 'B')")
+    end
+
+    test "IN combined with AND" do
+      assert {:ok, true} = run("category IN ('A', 'B') AND status = 'completed'")
+    end
+
+    test "IN combined with OR" do
+      assert {:ok, true} = run("category IN ('X', 'Y') OR status = 'completed'")
+    end
+  end
+
+  describe "LIKE operator" do
+    test "LIKE with % wildcard - contains" do
+      assert {:ok, true} = run("label LIKE '%world%'")
+    end
+
+    test "LIKE with % wildcard - starts with" do
+      assert {:ok, true} = run("label LIKE 'hello%'")
+    end
+
+    test "LIKE with % wildcard - ends with" do
+      assert {:ok, true} = run("label LIKE '%world'")
+    end
+
+    test "LIKE exact match" do
+      assert {:ok, true} = run("label LIKE 'hello world'")
+      assert {:ok, false} = run("label LIKE 'hello'")
+    end
+
+    test "LIKE with _ wildcard" do
+      assert {:ok, true} = run("category LIKE '_'")
+      assert {:ok, false} = run("label LIKE '_'")
+    end
+
+    test "LIKE is case-insensitive" do
+      assert {:ok, true} = run("label LIKE 'HELLO WORLD'")
+      assert {:ok, true} = run("label LIKE '%WORLD'")
+      assert {:ok, true} = run("status LIKE 'COMPLETED'")
+    end
+
+    test "NOT LIKE" do
+      assert {:ok, true} = run("label NOT LIKE '%xyz%'")
+      assert {:ok, false} = run("label NOT LIKE '%world%'")
+    end
+
+    test "LIKE combined with AND" do
+      assert {:ok, true} = run("label LIKE '%hello%' AND status = 'completed'")
+    end
+
+    test "LIKE and IN combined" do
+      assert {:ok, true} = run("category IN ('A', 'B') AND label LIKE '%world%'")
+    end
+  end
 end

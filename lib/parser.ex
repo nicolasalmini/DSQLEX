@@ -98,6 +98,40 @@ defmodule Dsqlex.Parser do
       end
     end
   end
+  # expr IN (val1, val2, ...)
+  defp maybe_parse_comparison_op(left, [{:keyword, :in}, {:lparen} | rest]) do
+    with {:ok, items, rest} <- parse_in_list(rest) do
+      case rest do
+        [{:rparen} | rest] -> {:ok, {:in, left, items}, rest}
+        _ -> {:error, "Expected closing parenthesis ')' after IN list"}
+      end
+    end
+  end
+
+  # expr NOT IN (val1, val2, ...)
+  defp maybe_parse_comparison_op(left, [{:keyword, :not}, {:keyword, :in}, {:lparen} | rest]) do
+    with {:ok, items, rest} <- parse_in_list(rest) do
+      case rest do
+        [{:rparen} | rest] -> {:ok, {:not_in, left, items}, rest}
+        _ -> {:error, "Expected closing parenthesis ')' after NOT IN list"}
+      end
+    end
+  end
+
+  # expr NOT LIKE pattern
+  defp maybe_parse_comparison_op(left, [{:keyword, :not}, {:keyword, :like} | rest]) do
+    with {:ok, pattern, rest} <- parse_primary(rest) do
+      {:ok, {:not_like, left, pattern}, rest}
+    end
+  end
+
+  # expr LIKE pattern
+  defp maybe_parse_comparison_op(left, [{:keyword, :like} | rest]) do
+    with {:ok, pattern, rest} <- parse_primary(rest) do
+      {:ok, {:like, left, pattern}, rest}
+    end
+  end
+
   defp maybe_parse_comparison_op(left, rest), do: {:ok, left, rest}
 
   # ============================================================
@@ -164,6 +198,25 @@ defmodule Dsqlex.Parser do
   end
 
   defp parse_primary(tokens), do: {:error, "Unexpected token: #{inspect(tokens)}"}
+
+  # ============================================================
+  # IN list helpers
+  # ============================================================
+
+  # Parse comma-separated values inside IN (...)
+  defp parse_in_list([{:rparen} | _] = tokens), do: {:ok, [], tokens}
+  defp parse_in_list(tokens) do
+    with {:ok, first, rest} <- parse_primary(tokens) do
+      parse_more_in_items([first], rest)
+    end
+  end
+
+  defp parse_more_in_items(items, [{:comma} | rest]) do
+    with {:ok, item, rest} <- parse_primary(rest) do
+      parse_more_in_items(items ++ [item], rest)
+    end
+  end
+  defp parse_more_in_items(items, rest), do: {:ok, items, rest}
 
   # ============================================================
   # Function call helpers

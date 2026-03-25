@@ -103,6 +103,8 @@ defmodule Dsqlex.Lexer do
       "NULL"     -> {:keyword, :null}
       "TRUE"     -> {:keyword, :true}
       "FALSE"    -> {:keyword, :false}
+      "IN"       -> {:keyword, :in}
+      "LIKE"     -> {:keyword, :like}
       "UPPER"    -> {:function, :upper}
       "LOWER"    -> {:function, :lower}
       "ROUND"    -> {:function, :round}

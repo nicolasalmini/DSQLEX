@@ -678,4 +678,98 @@ defmodule Dsqlex.EvaluatorTest do
       assert Decimal.equal?(result, Decimal.new("550"))
     end
   end
+
+  describe "evaluate/2 - IN and NOT IN" do
+    test "string IN list - match" do
+      ast = select({:in, ident("category"), [str("A"), str("B"), str("C")]})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "string IN list - no match" do
+      ast = select({:in, ident("category"), [str("X"), str("Y")]})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "number IN list - match" do
+      ast = select({:in, ident("x"), [num("50"), num("100.00"), num("200")]})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "number IN list - no match" do
+      ast = select({:in, ident("x"), [num("1"), num("2")]})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "NOT IN - no match returns true" do
+      ast = select({:not_in, ident("category"), [str("X"), str("Y")]})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "NOT IN - match returns false" do
+      ast = select({:not_in, ident("category"), [str("A"), str("B")]})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "IN with single item" do
+      ast = select({:in, ident("category"), [str("B")]})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+  end
+
+  describe "evaluate/2 - LIKE and NOT LIKE" do
+    test "LIKE with % prefix match" do
+      ast = select({:like, ident("status"), str("%tive")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE with % suffix match" do
+      ast = select({:like, ident("status"), str("act%")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE with % both sides" do
+      ast = select({:like, ident("status"), str("%ctiv%")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE exact match (no wildcards)" do
+      ast = select({:like, ident("status"), str("active")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE no match" do
+      ast = select({:like, ident("status"), str("%xyz%")})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE with _ single character wildcard" do
+      ast = select({:like, ident("category"), str("_")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE _ does not match multiple characters" do
+      ast = select({:like, ident("status"), str("_")})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE is case-insensitive" do
+      ast = select({:like, ident("status"), str("ACTIVE")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LIKE is case-insensitive with wildcards" do
+      ast = select({:like, ident("status"), str("%CTIV%")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "NOT LIKE - no match returns true" do
+      ast = select({:not_like, ident("status"), str("%xyz%")})
+      assert {:ok, true} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "NOT LIKE - match returns false" do
+      ast = select({:not_like, ident("status"), str("%active%")})
+      assert {:ok, false} = Evaluator.evaluate(ast, @context)
+    end
+  end
 end
