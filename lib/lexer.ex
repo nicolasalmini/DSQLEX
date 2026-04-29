@@ -38,6 +38,20 @@ defmodule Dsqlex.Lexer do
     do_tokenize(rest, [token | tokens])
   end
 
+  # handle SQL line comments: -- ... <newline or eof>
+  defp do_tokenize(<<"--", rest::binary>>, tokens), do: do_tokenize(skip_to_newline(rest), tokens)
+
+  # handle MySQL-style line comments: # ... <newline or eof>
+  defp do_tokenize(<<"#", rest::binary>>, tokens), do: do_tokenize(skip_to_newline(rest), tokens)
+
+  # handle block comments: /* ... */ (may span multiple lines)
+  defp do_tokenize(<<"/*", rest::binary>>, tokens) do
+    case skip_block_comment(rest) do
+      {:ok, rest} -> do_tokenize(rest, tokens)
+      {:error, _} = error -> error
+    end
+  end
+
   defp do_tokenize(<<"!=", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :neq} | tokens])
   defp do_tokenize(<<"<=", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :lte} | tokens])
   defp do_tokenize(<<">=", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :gte} | tokens])
@@ -51,8 +65,16 @@ defmodule Dsqlex.Lexer do
   defp do_tokenize(<<"<", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :lt} | tokens])
   defp do_tokenize(<<">", rest::binary>>, tokens), do: do_tokenize(rest, [{:operator, :gt} | tokens])
 
-  # catch-all for unrecognized characters (e.g. trailing dot while user is still typing)
-  defp do_tokenize(<<char, _rest::binary>>, _tokens), do: {:error, "Unexpected character: '#{<<char>>}'"}
+  # catch-all for unrecognized characters (e.g. trailing dot while user is still typing).
+  # Match a full UTF-8 codepoint first so the error message stays valid UTF-8 for
+  # non-ASCII input (e.g. accented letters); fall back to a hex byte for invalid UTF-8.
+  defp do_tokenize(<<cp::utf8, _rest::binary>>, _tokens),
+    do: {:error, "Unexpected character: '#{<<cp::utf8>>}'"}
+
+  defp do_tokenize(<<byte, _rest::binary>>, _tokens) do
+    hex = byte |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.upcase()
+    {:error, "Unexpected byte: 0x#{hex}"}
+  end
 
   # handle numbers
   defp consume_number(input), do: consume_number(input, "")
@@ -87,6 +109,17 @@ defmodule Dsqlex.Lexer do
     consume_string(rest, acc <> <<c>>)
   end
   defp consume_string(_rest, _acc), do: {:error, "Unterminated string"}
+
+  # skip until newline or end of binary; comment bodies are discarded as raw bytes,
+  # so non-ASCII content is safely ignored without UTF-8 validation.
+  defp skip_to_newline(""), do: ""
+  defp skip_to_newline(<<"\n", rest::binary>>), do: rest
+  defp skip_to_newline(<<_byte, rest::binary>>), do: skip_to_newline(rest)
+
+  # skip until "*/" or fail with an unterminated-block-comment error.
+  defp skip_block_comment(""), do: {:error, "Unterminated block comment"}
+  defp skip_block_comment(<<"*/", rest::binary>>), do: {:ok, rest}
+  defp skip_block_comment(<<_byte, rest::binary>>), do: skip_block_comment(rest)
 
 
   defp classify_word(word) do

@@ -340,4 +340,102 @@ defmodule Dsqlex.LexerTest do
       assert {:ok, []} = Lexer.tokenize("\n\t ")
     end
   end
+
+  describe "tokenize/1 - comments" do
+    test "double-dash line comment is skipped to end of input" do
+      assert {:ok, [{:identifier, "x"}]} = Lexer.tokenize("x -- this is a comment")
+    end
+
+    test "double-dash line comment ends at newline" do
+      assert {:ok, tokens} = Lexer.tokenize("x -- comment\n+ y")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:operator, :plus},
+        {:identifier, "y"}
+      ]
+    end
+
+    test "hash line comment is skipped" do
+      assert {:ok, [{:identifier, "x"}]} = Lexer.tokenize("# top comment\nx # trailing comment")
+    end
+
+    test "block comment is skipped inline" do
+      assert {:ok, tokens} = Lexer.tokenize("x /* inline */ + y")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:operator, :plus},
+        {:identifier, "y"}
+      ]
+    end
+
+    test "block comment may span multiple lines" do
+      assert {:ok, tokens} = Lexer.tokenize("x /*\n  multi\n  line\n*/ + y")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:operator, :plus},
+        {:identifier, "y"}
+      ]
+    end
+
+    test "unterminated block comment returns error" do
+      assert {:error, "Unterminated block comment"} = Lexer.tokenize("x /* never closes")
+    end
+
+    test "comment bodies may contain non-ASCII characters" do
+      expr = """
+      status_id NOT IN (
+        1,  -- pending review
+        2,  -- archived – soft-deleted
+        3,  -- naïve test
+        4   -- staging
+      )
+      """
+
+      assert {:ok, tokens} = Lexer.tokenize(expr)
+      assert {:identifier, "status_id"} in tokens
+      assert {:keyword, :not} in tokens
+      assert {:keyword, :in} in tokens
+      assert {:number, "1"} in tokens
+      assert {:number, "4"} in tokens
+      refute Enum.any?(tokens, &match?({:operator, :minus}, &1))
+    end
+
+    test "minus operator is unaffected when not doubled" do
+      assert {:ok, tokens} = Lexer.tokenize("x - y")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:operator, :minus},
+        {:identifier, "y"}
+      ]
+    end
+
+    test "divide operator is unaffected when not followed by *" do
+      assert {:ok, tokens} = Lexer.tokenize("x / y")
+
+      assert tokens == [
+        {:identifier, "x"},
+        {:operator, :divide},
+        {:identifier, "y"}
+      ]
+    end
+  end
+
+  describe "tokenize/1 - error messages" do
+    test "non-ASCII character outside comments returns a UTF-8 valid error" do
+      assert {:error, message} = Lexer.tokenize("ô")
+      assert String.valid?(message)
+      assert message == "Unexpected character: 'ô'"
+    end
+
+    test "invalid UTF-8 byte returns a UTF-8 valid hex byte error" do
+      # 0xC3 alone is the lead byte of a 2-byte UTF-8 sequence; on its own it is invalid.
+      assert {:error, message} = Lexer.tokenize(<<0xC3>>)
+      assert String.valid?(message)
+      assert message == "Unexpected byte: 0xC3"
+    end
+  end
 end

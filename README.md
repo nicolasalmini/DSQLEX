@@ -13,6 +13,7 @@ A SQL-like DSL (Domain Specific Language) for evaluating dynamic calculations in
 - 📦 **Built-in functions**: `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`
 - ✅ **Validation**: Parse expressions before storing to catch syntax errors early
 - 🎯 **Unambiguous syntax**: Parentheses required for complex expressions
+- 💬 **Comments**: SQL-style line comments (`-- ...`, `# ...`) and block comments (`/* ... */`)
 
 ## Installation
 
@@ -96,6 +97,26 @@ Tokenizes an expression without parsing. Useful for debugging.
 | Strings | `'hello'`, `'world'` |
 | Booleans | `TRUE`, `FALSE` |
 | Null | `NULL` |
+
+### Comments
+
+| Style | Description |
+|-------|-------------|
+| `-- ...` | SQL line comment, runs to end of line |
+| `# ...` | MySQL-style line comment, runs to end of line |
+| `/* ... */` | Block comment, may span multiple lines |
+
+Comments are stripped at the lexer stage and never reach the parser, so they may
+appear anywhere whitespace is allowed and may contain any characters (including
+non-ASCII text) in their bodies.
+
+```sql
+status_id NOT IN (
+  1,  -- pending review
+  2,  -- archived – soft-deleted
+  3   -- naïve test
+)
+```
 
 ### Arithmetic Operators
 
