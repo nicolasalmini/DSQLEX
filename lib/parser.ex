@@ -1,6 +1,7 @@
 defmodule Dsqlex.Parser do
-  # Arithmetic operators
-  @arithmetic_ops [:plus, :minus, :multiply, :divide]
+  # Arithmetic operators (split by precedence group)
+  @additive_ops [:plus, :minus]
+  @multiplicative_ops [:multiply, :divide]
   # Comparison operators
   @comparison_ops [:eq, :neq, :lt, :gt, :lte, :gte]
 
@@ -137,7 +138,8 @@ defmodule Dsqlex.Parser do
   # ============================================================
   # LEVEL 3: Arithmetic operators
   # - Operates on primaries
-  # - Only ONE arithmetic op allowed (must use parens for more)
+  # - Same-group chaining allowed (a + b - c, a * b / c)
+  # - Mixing additive (+/-) and multiplicative (*//) requires parentheses
   # ============================================================
   defp parse_arithmetic(tokens) do
     with {:ok, left, rest} <- parse_primary(tokens) do
@@ -145,18 +147,39 @@ defmodule Dsqlex.Parser do
     end
   end
 
-  defp maybe_parse_arithmetic_op(left, [{:operator, op} | rest]) when op in @arithmetic_ops do
+  defp maybe_parse_arithmetic_op(left, [{:operator, op} | rest]) when op in @additive_ops do
     with {:ok, right, rest} <- parse_primary(rest) do
-      # Check for chained arithmetic (not allowed without parens)
-      case rest do
-        [{:operator, op2} | _] when op2 in @arithmetic_ops ->
-          {:error, "Ambiguous expression: use parentheses to clarify. Found '#{op2}' after '#{op}'"}
-        _ ->
-          {:ok, {:binary_op, op, left, right}, rest}
-      end
+      parse_additive_chain({:binary_op, op, left, right}, rest)
+    end
+  end
+  defp maybe_parse_arithmetic_op(left, [{:operator, op} | rest]) when op in @multiplicative_ops do
+    with {:ok, right, rest} <- parse_primary(rest) do
+      parse_multiplicative_chain({:binary_op, op, left, right}, rest)
     end
   end
   defp maybe_parse_arithmetic_op(left, rest), do: {:ok, left, rest}
+
+  # Continue additive chain (+/-)
+  defp parse_additive_chain(left, [{:operator, op} | rest]) when op in @additive_ops do
+    with {:ok, right, rest} <- parse_primary(rest) do
+      parse_additive_chain({:binary_op, op, left, right}, rest)
+    end
+  end
+  defp parse_additive_chain(_left, [{:operator, op} | _]) when op in @multiplicative_ops do
+    {:error, "Ambiguous expression: mixing +/- and *// requires parentheses"}
+  end
+  defp parse_additive_chain(left, rest), do: {:ok, left, rest}
+
+  # Continue multiplicative chain (*//)
+  defp parse_multiplicative_chain(left, [{:operator, op} | rest]) when op in @multiplicative_ops do
+    with {:ok, right, rest} <- parse_primary(rest) do
+      parse_multiplicative_chain({:binary_op, op, left, right}, rest)
+    end
+  end
+  defp parse_multiplicative_chain(_left, [{:operator, op} | _]) when op in @additive_ops do
+    {:error, "Ambiguous expression: mixing +/- and *// requires parentheses"}
+  end
+  defp parse_multiplicative_chain(left, rest), do: {:ok, left, rest}
 
   # ============================================================
   # LEVEL 4: Primary expressions (highest precedence)

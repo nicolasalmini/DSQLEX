@@ -278,7 +278,7 @@ defmodule Dsqlex.IntegrationTest do
     end
 
     test "parser error - ambiguous expression" do
-      assert {:error, "Ambiguous expression" <> _} = run("SELECT 1 + 2 + 3")
+      assert {:error, "Ambiguous expression" <> _} = run("SELECT 1 + 2 * 3")
     end
 
     test "evaluator error - unknown field" do

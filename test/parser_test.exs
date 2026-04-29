@@ -57,10 +57,54 @@ defmodule Dsqlex.ParserTest do
         parse("SELECT a / b")
     end
 
-    test "rejects chained arithmetic without parentheses" do
-      assert {:error, "Ambiguous expression:" <> _} = parse("SELECT 1 + 2 + 3")
-      assert {:error, "Ambiguous expression:" <> _} = parse("SELECT 1 + 2 * 3")
-      assert {:error, "Ambiguous expression:" <> _} = parse("SELECT a / b + c")
+    test "allows same-group additive chains without parentheses" do
+      # Left-associative: ((a - b) - c) - d
+      {:ok, {:select, ast}} = parse("SELECT a - b - c - d")
+      assert {:binary_op, :minus,
+               {:binary_op, :minus,
+                 {:binary_op, :minus, {:identifier, "a"}, {:identifier, "b"}},
+                 {:identifier, "c"}},
+               {:identifier, "d"}} = ast
+
+      # Left-associative: ((1 + 2) + 3)
+      {:ok, {:select, ast}} = parse("SELECT 1 + 2 + 3")
+      assert {:binary_op, :plus,
+               {:binary_op, :plus, {:number, "1"}, {:number, "2"}},
+               {:number, "3"}} = ast
+
+      # Mixed +/- in the same chain is allowed
+      {:ok, {:select, ast}} = parse("SELECT a + b - c + d")
+      assert {:binary_op, :plus,
+               {:binary_op, :minus,
+                 {:binary_op, :plus, {:identifier, "a"}, {:identifier, "b"}},
+                 {:identifier, "c"}},
+               {:identifier, "d"}} = ast
+    end
+
+    test "allows same-group multiplicative chains without parentheses" do
+      # Left-associative: ((a * b) * c)
+      {:ok, {:select, ast}} = parse("SELECT a * b * c")
+      assert {:binary_op, :multiply,
+               {:binary_op, :multiply, {:identifier, "a"}, {:identifier, "b"}},
+               {:identifier, "c"}} = ast
+
+      # Mixed *// in the same chain is allowed
+      {:ok, {:select, ast}} = parse("SELECT a * b / c")
+      assert {:binary_op, :divide,
+               {:binary_op, :multiply, {:identifier, "a"}, {:identifier, "b"}},
+               {:identifier, "c"}} = ast
+    end
+
+    test "rejects mixing additive and multiplicative without parentheses" do
+      assert {:error, "Ambiguous expression: mixing +/- and *//" <> _} =
+        parse("SELECT 1 + 2 * 3")
+      assert {:error, "Ambiguous expression: mixing +/- and *//" <> _} =
+        parse("SELECT a / b + c")
+      assert {:error, "Ambiguous expression: mixing +/- and *//" <> _} =
+        parse("SELECT a - b - c - d / e")
+      # Inner parens don't cure the outer mix
+      assert {:error, "Ambiguous expression: mixing +/- and *//" <> _} =
+        parse("SELECT a - b - (c - d) / e")
     end
 
     test "allows chained arithmetic with parentheses" do
@@ -69,6 +113,36 @@ defmodule Dsqlex.ParserTest do
 
       assert {:ok, {:select, {:binary_op, :multiply, {:binary_op, :plus, _, _}, _}}} =
         parse("SELECT (1 + 2) * 3")
+    end
+
+    test "allows cross-group when properly grouped with parentheses" do
+      # (a - b - c - d) / e
+      {:ok, {:select, ast}} = parse("SELECT (a - b - c - d) / e")
+      assert {:binary_op, :divide,
+               {:binary_op, :minus,
+                 {:binary_op, :minus,
+                   {:binary_op, :minus, {:identifier, "a"}, {:identifier, "b"}},
+                   {:identifier, "c"}},
+                 {:identifier, "d"}},
+               {:identifier, "e"}} = ast
+
+      # (a / e) - b - c - d
+      {:ok, {:select, ast}} = parse("SELECT (a / e) - b - c - d")
+      assert {:binary_op, :minus,
+               {:binary_op, :minus,
+                 {:binary_op, :minus,
+                   {:binary_op, :divide, {:identifier, "a"}, {:identifier, "e"}},
+                   {:identifier, "b"}},
+                 {:identifier, "c"}},
+               {:identifier, "d"}} = ast
+
+      # a - b - ((c - d) / e)
+      {:ok, {:select, ast}} = parse("SELECT a - b - ((c - d) / e)")
+      assert {:binary_op, :minus,
+               {:binary_op, :minus, {:identifier, "a"}, {:identifier, "b"}},
+               {:binary_op, :divide,
+                 {:binary_op, :minus, {:identifier, "c"}, {:identifier, "d"}},
+                 {:identifier, "e"}}} = ast
     end
   end
 
