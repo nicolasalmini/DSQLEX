@@ -74,8 +74,11 @@ Parses an expression and returns the AST without evaluating. Useful for validati
 {:ok, ast} = Dsqlex.parse("x / y")
 # => {:ok, {:select, {:binary_op, :divide, {:identifier, "x"}, {:identifier, "y"}}}}
 
-{:error, reason} = Dsqlex.parse("1 + 2 + 3")
-# => {:error, "Ambiguous expression: use parentheses to clarify..."}
+{:ok, ast} = Dsqlex.parse("1 + 2 + 3")
+# => {:ok, {:select, {:binary_op, :plus, {:binary_op, :plus, {:number, "1"}, {:number, "2"}}, {:number, "3"}}}}
+
+{:error, reason} = Dsqlex.parse("1 + 2 * 3")
+# => {:error, "Ambiguous expression: mixing +/- and *// requires parentheses"}
 ```
 
 ### `Dsqlex.tokenize(expression)`
@@ -170,29 +173,32 @@ END
 
 ## The Parentheses Rule
 
-To eliminate ambiguity and ensure calculation correctness, DSQLEX requires parentheses for complex expressions:
+To eliminate ambiguity and ensure calculation correctness, DSQLEX requires parentheses when mixing operator groups:
 
 ```elixir
 # ✅ Valid - single operation
 "SELECT a + b"
 "SELECT a = 1"
 
+# ✅ Valid - chaining the same operator group
+"SELECT a + b + c"        # additive chain, left-associative: (a+b)+c
+"SELECT a - b + c"        # additive chain
+"SELECT a * b / c"        # multiplicative chain, left-associative: (a*b)/c
+
 # ✅ Valid - parentheses make intent clear
 "SELECT (a + b) * c"
-"SELECT (a + b) + c"
 "SELECT (a = 1 AND b = 2) OR c = 3"
 
 # ✅ Valid - same logical operator can chain
 "SELECT a = 1 AND b = 2 AND c = 3"
 "SELECT a = 1 OR b = 2 OR c = 3"
 
-# ❌ Invalid - ambiguous without parentheses
-"SELECT a + b + c"        # Is it (a+b)+c or a+(b+c)?
-"SELECT a + b * c"        # Is it (a+b)*c or a+(b*c)?
-"SELECT a = 1 AND b = 2 OR c = 3"  # Mixing AND/OR
+# ❌ Invalid - mixing operator groups requires parentheses
+"SELECT a + b * c"        # mixing additive and multiplicative
+"SELECT a = 1 AND b = 2 OR c = 3"  # mixing AND/OR
 ```
 
-This design choice prioritizes **correctness over convenience** - users must explicitly define the order of operations.
+This design choice prioritizes **correctness over convenience** — mixed-precedence expressions must use parentheses to make the intended order of operations explicit.
 
 ## Examples
 
