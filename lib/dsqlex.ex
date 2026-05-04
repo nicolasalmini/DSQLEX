@@ -30,15 +30,16 @@ defmodule Dsqlex do
 
   ## Parentheses Rule
 
-  To avoid ambiguity, complex expressions require parentheses:
+  To avoid ambiguity, expressions that mix operator groups require parentheses:
 
       # Valid
       "1 + 2"
+      "1 + 2 + 3"
       "(1 + 2) * 3"
       "a = 1 AND b = 2 AND c = 3"
 
       # Invalid (ambiguous)
-      "1 + 2 + 3"
+      "1 + 2 * 3"
       "a = 1 AND b = 2 OR c = 3"
   """
 

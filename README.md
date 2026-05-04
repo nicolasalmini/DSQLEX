@@ -77,6 +77,7 @@ Parses an expression and returns the AST without evaluating. Useful for validati
 {:ok, ast} = Dsqlex.parse("1 + 2 + 3")
 # => {:ok, {:select, {:binary_op, :plus, {:binary_op, :plus, {:number, "1"}, {:number, "2"}}, {:number, "3"}}}}
 
+
 {:error, reason} = Dsqlex.parse("1 + 2 * 3")
 # => {:error, "Ambiguous expression: mixing +/- and *// requires parentheses"}
 ```
