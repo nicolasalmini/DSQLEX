@@ -23,7 +23,7 @@ defmodule Dsqlex.Evaluator do
   end
 
   # ============================================================
-  # SELECT wrapper
+  # (optional) SELECT wrapper
   # ============================================================
   defp do_eval({:select, expr}, context, opts), do: do_eval(expr, context, opts)
 
@@ -67,46 +67,6 @@ defmodule Dsqlex.Evaluator do
         end
     end
   end
-
-  defp resolve_dot_path(path, context) do
-    parts = String.split(path, ".")
-    resolve_dot_parts(parts, context, path)
-  end
-
-  defp resolve_dot_parts([], acc, _path), do: acc
-
-  defp resolve_dot_parts([key | rest], acc, path) when is_map(acc) do
-    case Map.fetch(acc, key) do
-      {:ok, value} -> resolve_dot_parts(rest, value, path)
-      :error -> raise "Unknown field: #{path} (failed at '#{key}')"
-    end
-  end
-
-  defp resolve_dot_parts([_key | _] = remaining, acc, path) when is_list(acc) do
-    results = Enum.map(acc, fn item -> resolve_dot_parts(remaining, item, path) end)
-
-    if Enum.all?(results, &decimal_like?/1) do
-      results
-      |> Enum.map(&to_decimal/1)
-      |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
-    else
-      results
-    end
-  end
-
-  defp resolve_dot_parts([key | _rest], _acc, path) do
-    raise "Cannot access '#{key}' on non-map value in path '#{path}'"
-  end
-
-  defp decimal_like?(%Decimal{}), do: true
-  defp decimal_like?(n) when is_number(n), do: true
-  defp decimal_like?(s) when is_binary(s) do
-    case Decimal.parse(s) do
-      {_, ""} -> true
-      _ -> false
-    end
-  end
-  defp decimal_like?(_), do: false
 
   # ============================================================
   # Binary operations - arithmetic
@@ -312,6 +272,9 @@ defmodule Dsqlex.Evaluator do
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
   defp to_decimal(s) when is_binary(s), do: Decimal.new(s)
 
+  defp compare_values(nil, nil), do: :eq
+  defp compare_values(nil, _), do: :neq
+  defp compare_values(_, nil), do: :neq
   defp compare_values(%Decimal{} = a, %Decimal{} = b), do: Decimal.compare(a, b)
   defp compare_values(%Decimal{} = a, b), do: Decimal.compare(a, to_decimal(b))
   defp compare_values(a, %Decimal{} = b), do: Decimal.compare(to_decimal(a), b)
@@ -343,4 +306,44 @@ defmodule Dsqlex.Evaluator do
     {:ok, regex} = Regex.compile("^#{regex_str}$", "i")
     Regex.match?(regex, value)
   end
+
+  defp resolve_dot_path(path, context) do
+    parts = String.split(path, ".")
+    resolve_dot_parts(parts, context, path)
+  end
+
+  defp resolve_dot_parts([], acc, _path), do: acc
+
+  defp resolve_dot_parts([key | rest], acc, path) when is_map(acc) do
+    case Map.fetch(acc, key) do
+      {:ok, value} -> resolve_dot_parts(rest, value, path)
+      :error -> raise "Unknown field: #{path} (failed at '#{key}')"
+    end
+  end
+
+  defp resolve_dot_parts([_key | _] = remaining, acc, path) when is_list(acc) do
+    results = Enum.map(acc, fn item -> resolve_dot_parts(remaining, item, path) end)
+
+    if Enum.all?(results, &decimal_like?/1) do
+      results
+      |> Enum.map(&to_decimal/1)
+      |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
+    else
+      results
+    end
+  end
+
+  defp resolve_dot_parts([key | _rest], _acc, path) do
+    raise "Cannot access '#{key}' on non-map value in path '#{path}'"
+  end
+
+  defp decimal_like?(%Decimal{}), do: true
+  defp decimal_like?(n) when is_number(n), do: true
+  defp decimal_like?(s) when is_binary(s) do
+    case Decimal.parse(s) do
+      {_, ""} -> true
+      _ -> false
+    end
+  end
+  defp decimal_like?(_), do: false
 end

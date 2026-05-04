@@ -119,6 +119,28 @@ defmodule Dsqlex.Parser do
     end
   end
 
+  # expr IS NOT NULL / TRUE / FALSE
+  defp maybe_parse_comparison_op(left, [{:keyword, :is}, {:keyword, :not}, {:keyword, kw} | rest])
+       when kw in [:null, :true, :false] do
+    literal = case kw do
+      :null  -> {:null}
+      :true  -> {:boolean, true}
+      :false -> {:boolean, false}
+    end
+    {:ok, {:binary_op, :neq, left, literal}, rest}
+  end
+
+  # expr IS NULL / TRUE / FALSE
+  defp maybe_parse_comparison_op(left, [{:keyword, :is}, {:keyword, kw} | rest])
+       when kw in [:null, :true, :false] do
+    literal = case kw do
+      :null  -> {:null}
+      :true  -> {:boolean, true}
+      :false -> {:boolean, false}
+    end
+    {:ok, {:binary_op, :eq, left, literal}, rest}
+  end
+
   # expr NOT LIKE pattern
   defp maybe_parse_comparison_op(left, [{:keyword, :not}, {:keyword, :like} | rest]) do
     with {:ok, pattern, rest} <- parse_primary(rest) do

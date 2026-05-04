@@ -557,6 +557,68 @@ defmodule Dsqlex.IntegrationTest do
     end
   end
 
+  describe "IS / IS NOT operator" do
+    @is_context %{
+      "a" => Decimal.new("1.00"),
+      "b" => nil,
+      "flag" => true,
+      "tag" => "x"
+    }
+
+    test "IS NULL - true when field is nil" do
+      assert {:ok, true} = run("b IS NULL", @is_context)
+    end
+
+    test "IS NULL - false when field is not nil" do
+      assert {:ok, false} = run("a IS NULL", @is_context)
+    end
+
+    test "IS NOT NULL - true when field is not nil" do
+      assert {:ok, true} = run("a IS NOT NULL", @is_context)
+    end
+
+    test "IS NOT NULL - false when field is nil" do
+      assert {:ok, false} = run("b IS NOT NULL", @is_context)
+    end
+
+    test "IS TRUE - true when field is true" do
+      assert {:ok, true} = run("flag IS TRUE", @is_context)
+    end
+
+    test "IS TRUE - false when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, false} = run("flag IS TRUE", ctx)
+    end
+
+    test "IS FALSE - true when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, true} = run("flag IS FALSE", ctx)
+    end
+
+    test "IS NOT TRUE - true when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, true} = run("flag IS NOT TRUE", ctx)
+    end
+
+    test "IS NOT FALSE - true when field is true" do
+      assert {:ok, true} = run("flag IS NOT FALSE", @is_context)
+    end
+
+    test "IS NULL in CASE WHEN" do
+      result = run("""
+        CASE
+          WHEN b IS NULL THEN 'missing'
+          ELSE 'present'
+        END
+      """, @is_context)
+      assert {:ok, "missing"} = result
+    end
+
+    test "IS NOT NULL combined with AND" do
+      assert {:ok, true} = run("a IS NOT NULL AND tag = 'x'", @is_context)
+    end
+  end
+
   describe "LIKE operator" do
     test "LIKE with % wildcard - contains" do
       assert {:ok, true} = run("label LIKE '%world%'")

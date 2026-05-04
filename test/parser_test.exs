@@ -356,6 +356,43 @@ defmodule Dsqlex.ParserTest do
     end
   end
 
+  describe "parse/1 - IS and IS NOT" do
+    test "parses IS NULL" do
+      assert {:ok, {:select, {:binary_op, :eq, {:identifier, "x"}, {:null}}}} =
+        parse("x IS NULL")
+    end
+
+    test "parses IS NOT NULL" do
+      assert {:ok, {:select, {:binary_op, :neq, {:identifier, "x"}, {:null}}}} =
+        parse("x IS NOT NULL")
+    end
+
+    test "parses IS TRUE" do
+      assert {:ok, {:select, {:binary_op, :eq, {:identifier, "flag"}, {:boolean, true}}}} =
+        parse("flag IS TRUE")
+    end
+
+    test "parses IS NOT TRUE" do
+      assert {:ok, {:select, {:binary_op, :neq, {:identifier, "flag"}, {:boolean, true}}}} =
+        parse("flag IS NOT TRUE")
+    end
+
+    test "parses IS FALSE" do
+      assert {:ok, {:select, {:binary_op, :eq, {:identifier, "flag"}, {:boolean, false}}}} =
+        parse("flag IS FALSE")
+    end
+
+    test "parses IS NOT FALSE" do
+      assert {:ok, {:select, {:binary_op, :neq, {:identifier, "flag"}, {:boolean, false}}}} =
+        parse("flag IS NOT FALSE")
+    end
+
+    test "IS NULL combined with AND" do
+      assert {:ok, {:select, {:binary_op, :and, {:binary_op, :eq, {:identifier, "x"}, {:null}}, {:binary_op, :eq, _, _}}}} =
+        parse("x IS NULL AND y = 1")
+    end
+  end
+
   describe "parse/1 - LIKE and NOT LIKE" do
     test "parses simple LIKE" do
       assert {:ok, {:select, {:like, {:identifier, "name"}, {:string, "%test%"}}}} =
