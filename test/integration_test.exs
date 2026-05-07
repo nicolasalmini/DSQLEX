@@ -1,0 +1,664 @@
+defmodule Dsqlex.IntegrationTest do
+  use ExUnit.Case, async: true
+
+  alias Dsqlex.{Lexer, Parser, Evaluator}
+
+  @moduledoc """
+  End-to-end integration tests that verify the complete pipeline:
+  String → Lexer → Parser → Evaluator → Result
+  """
+
+  # Sample data context for testing
+  @sample_context %{
+    "price" => Decimal.new("500.00"),
+    "quantity" => Decimal.new("100.00"),
+    "category" => "B",
+    "rate" => Decimal.new("5.00"),
+    "status" => "completed",
+    "group_id" => 33,
+    "label" => "hello world",
+    "tax" => Decimal.new("10.00"),
+    "discount" => Decimal.new("2.00"),
+    "bonus" => nil
+  }
+
+  # Helper to run full pipeline
+  defp run(expression, context \\ @sample_context) do
+    with {:ok, tokens} <- Lexer.tokenize(expression),
+         {:ok, ast} <- Parser.parse(tokens),
+         {:ok, result} <- Evaluator.evaluate(ast, context) do
+      {:ok, result}
+    end
+  end
+
+  describe "simple expressions" do
+    test "select a field" do
+      assert {:ok, result} = run("SELECT price")
+      assert Decimal.equal?(result, Decimal.new("500.00"))
+    end
+
+    test "select a literal" do
+      assert {:ok, result} = run("SELECT 42")
+      assert Decimal.equal?(result, Decimal.new("42"))
+    end
+
+    test "select a string" do
+      assert {:ok, "hello"} = run("SELECT 'hello'")
+    end
+  end
+
+  describe "arithmetic calculations" do
+    test "simple division" do
+      assert {:ok, result} = run("SELECT price / rate")
+      assert Decimal.equal?(result, Decimal.new("100"))
+    end
+
+    test "addition" do
+      assert {:ok, result} = run("SELECT price + quantity")
+      assert Decimal.equal?(result, Decimal.new("600.00"))
+    end
+
+    test "complex arithmetic with parentheses" do
+      assert {:ok, result} = run("SELECT (price + tax) / rate")
+      assert Decimal.equal?(result, Decimal.new("102"))
+    end
+
+    test "nested parentheses" do
+      assert {:ok, result} = run("SELECT ((price / rate) + discount)")
+      assert Decimal.equal?(result, Decimal.new("102.00"))
+    end
+  end
+
+  describe "comparisons and logic" do
+    test "equality check" do
+      assert {:ok, true} = run("SELECT category = 'B'")
+      assert {:ok, false} = run("SELECT category = 'A'")
+    end
+
+    test "numeric comparison" do
+      assert {:ok, true} = run("SELECT price > 100")
+      assert {:ok, false} = run("SELECT price < 100")
+    end
+
+    test "AND condition" do
+      assert {:ok, true} = run("SELECT category = 'B' AND group_id = 33")
+      assert {:ok, false} = run("SELECT category = 'A' AND group_id = 33")
+    end
+
+    test "OR condition" do
+      assert {:ok, true} = run("SELECT category = 'A' OR group_id = 33")
+      assert {:ok, false} = run("SELECT category = 'A' OR group_id = 99")
+    end
+
+    test "chained AND" do
+      assert {:ok, true} = run("SELECT category = 'B' AND group_id = 33 AND status = 'completed'")
+    end
+
+    test "mixed AND/OR with parentheses" do
+      assert {:ok, true} = run("SELECT (category = 'A' OR category = 'B') AND group_id = 33")
+      assert {:ok, true} = run("SELECT category = 'B' AND (group_id = 33 OR group_id = 55)")
+    end
+  end
+
+  describe "CASE/WHEN - the main use case" do
+    test "conditional selection - category B" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'A' THEN quantity
+          WHEN category != 'A' THEN (price / rate)
+        END
+      """)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100"))
+    end
+
+    test "conditional selection - category A" do
+      a_context = Map.put(@sample_context, "category", "A")
+
+      result = run("""
+        SELECT CASE
+          WHEN category = 'A' THEN quantity
+          WHEN category != 'A' THEN (price / rate)
+        END
+      """, a_context)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "multiple conditions with ELSE" do
+      result = run("""
+        SELECT CASE
+          WHEN status = 'pending' THEN 'waiting'
+          WHEN status = 'completed' THEN 'done'
+          ELSE 'unknown'
+        END
+      """)
+
+      assert {:ok, "done"} = result
+    end
+
+    test "complex condition in WHEN" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'B' AND price > 100 THEN 'large B item'
+          ELSE 'other'
+        END
+      """)
+
+      assert {:ok, "large B item"} = result
+    end
+
+    test "nested CASE" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'B' THEN
+            CASE
+              WHEN price > 1000 THEN 'large'
+              ELSE 'small'
+            END
+          ELSE 'other'
+        END
+      """)
+
+      assert {:ok, "small"} = result
+    end
+  end
+
+  describe "functions" do
+    test "ROUND calculation result" do
+      result = run("SELECT ROUND(price / rate, 2)")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "COALESCE with null" do
+      result = run("SELECT COALESCE(bonus, 0)")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("0"))
+    end
+
+    test "COALESCE with non-null" do
+      result = run("SELECT COALESCE(quantity, 0)")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "UPPER" do
+      assert {:ok, "HELLO WORLD"} = run("SELECT UPPER(label)")
+    end
+
+    test "nested functions" do
+      result = run("SELECT ROUND(COALESCE((price / rate), quantity), 2)")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "function in CASE result" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'B' THEN ROUND(price / rate, 2)
+          ELSE quantity
+        END
+      """)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "CONCAT strings" do
+      result = run("CONCAT('Hello', ' ', 'World')")
+      assert {:ok, "Hello World"} = result
+    end
+
+    test "CONCAT with fields" do
+      result = run("CONCAT(label, ' in ', category)")
+      assert {:ok, "hello world in B"} = result
+    end
+
+    test "CONCAT in CASE" do
+      result = run("""
+        CASE
+          WHEN category = 'B' THEN CONCAT('Category: ', category)
+          ELSE CONCAT('Other: ', category)
+        END
+      """)
+      assert {:ok, "Category: B"} = result
+    end
+  end
+
+  describe "advanced calculation scenarios" do
+    test "net value after deductions" do
+      result = run("SELECT (price - tax) / rate")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("98"))
+    end
+
+    test "percentage calculation" do
+      result = run("SELECT (tax / price) * 100")
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("2.00"))
+    end
+
+    test "conditional value selection" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'A' THEN discount
+          ELSE (tax / rate)
+        END
+      """)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("2"))
+    end
+
+    test "complex conditional rule" do
+      result = run("""
+        SELECT CASE
+          WHEN category = 'A' AND quantity > 50 THEN ROUND(quantity * 1.1, 2)
+          WHEN category != 'A' AND price > 100 THEN ROUND((price / rate) * 1.05, 2)
+          ELSE 0
+        END
+      """)
+
+      assert {:ok, value} = result
+      # category=B, price=500 > 100, so: (500/5) * 1.05 = 105.00
+      assert Decimal.equal?(value, Decimal.new("105.00"))
+    end
+  end
+
+  describe "error handling" do
+    test "lexer error - unterminated string" do
+      assert {:error, "Unterminated string"} = run("SELECT 'hello")
+    end
+
+    test "parser error - missing parenthesis" do
+      assert {:error, "Expected closing parenthesis" <> _} = run("SELECT (1 + 2")
+    end
+
+    test "parser error - ambiguous expression" do
+      assert {:error, "Ambiguous expression" <> _} = run("SELECT 1 + 2 * 3")
+    end
+
+    test "evaluator error - unknown field" do
+      assert {:error, "Unknown field: nonexistent"} = run("SELECT nonexistent")
+    end
+  end
+
+  describe "cross-event references" do
+    # Simulates a registry of event formulas (like an ETS table)
+    @event_formulas %{
+      "event_a" => "x + y",
+      "event_b" => "z - event_a",
+      "event_c" => "event_a + event_b",
+      "event_circular" => "event_circular + 1"
+    }
+
+    @ref_context %{
+      "x" => Decimal.new("100"),
+      "y" => Decimal.new("20"),
+      "z" => Decimal.new("200")
+    }
+
+    defp make_resolver(formulas, context) do
+      fn name, visited ->
+        case Map.fetch(formulas, name) do
+          {:ok, formula} ->
+            new_visited = MapSet.put(visited, name)
+            opts = [resolver: make_resolver(formulas, context), visited: new_visited]
+            Dsqlex.eval(formula, context, opts)
+
+          :error ->
+            {:error, "Unknown event: #{name}"}
+        end
+      end
+    end
+
+    test "event_b references event_a" do
+      # event_a = x + y = 120
+      # event_b = z - event_a = 200 - 120 = 80
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_b", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("80"))
+    end
+
+    test "event_c references both event_a and event_b" do
+      # event_a = 120, event_b = 80
+      # event_c = event_a + event_b = 200
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_c", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("200"))
+    end
+
+    test "direct event reference" do
+      # event_a = x + y = 120
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_a", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("120"))
+    end
+
+    test "circular reference is detected" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:error, "Circular reference detected: event_circular"} =
+        Dsqlex.eval("event_circular", @ref_context, resolver: resolver)
+    end
+
+    test "unknown event returns error" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:error, "Unknown event: nonexistent_event"} =
+        Dsqlex.eval("nonexistent_event", @ref_context, resolver: resolver)
+    end
+
+    test "event reference in arithmetic expression" do
+      # (event_a * 2) = 240
+      resolver = make_resolver(@event_formulas, @ref_context)
+      assert {:ok, result} = Dsqlex.eval("event_a * 2", @ref_context, resolver: resolver)
+      assert Decimal.equal?(result, Decimal.new("240"))
+    end
+
+    test "event reference in CASE expression" do
+      resolver = make_resolver(@event_formulas, @ref_context)
+
+      result = Dsqlex.eval("""
+        CASE
+          WHEN event_a > 100 THEN event_b
+          ELSE 0
+        END
+      """, @ref_context, resolver: resolver)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("80"))
+    end
+  end
+
+  describe "EVENT() function - end to end" do
+    defp mock_event_resolver(formulas) do
+      fn type, subtype, eval_context, opts ->
+        key = "#{type}.#{subtype}"
+        case Map.fetch(formulas, key) do
+          {:ok, formula} -> Dsqlex.eval(formula, eval_context, opts)
+          :error -> {:error, "No formula found for EVENT(#{type}, #{subtype})"}
+        end
+      end
+    end
+
+    defp run_with_events(expression, context, formulas) do
+      resolver = mock_event_resolver(formulas)
+      Dsqlex.eval(expression, context, event_resolver: resolver)
+    end
+
+    test "EVENT with 2 args uses current context" do
+      formulas = %{"ORDER_PLACED.FEE" => "amount * rate"}
+      context = %{"amount" => Decimal.new("100"), "rate" => Decimal.new("0.05")}
+
+      assert {:ok, result} = run_with_events("EVENT(ORDER_PLACED, FEE)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("5.000"))
+    end
+
+    test "EVENT with 3 args - map context source" do
+      formulas = %{"P.REC" => "amount"}
+      context = %{
+        "amount" => Decimal.new("999"),
+        "order_data" => %{"amount" => Decimal.new("500")}
+      }
+
+      assert {:ok, result} = run_with_events("EVENT(P, REC, order_data)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("500"))
+    end
+
+    test "EVENT with 3 args - list context source (implicit sum)" do
+      formulas = %{"R.REC" => "amount"}
+      context = %{
+        "adjustments" => [
+          %{"amount" => Decimal.new("50")},
+          %{"amount" => Decimal.new("30")}
+        ]
+      }
+
+      assert {:ok, result} = run_with_events("EVENT(R, REC, adjustments)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("80"))
+    end
+
+    test "net total pattern: order total minus adjustment total" do
+      formulas = %{
+        "ORDER_PLACED.ORDER_TOTAL" => "amount",
+        "RETURN_PROCESSED.RETURN_TOTAL" => "amount"
+      }
+      context = %{
+        "order_data" => %{"amount" => Decimal.new("1000")},
+        "adjustments" => [
+          %{"amount" => Decimal.new("200")},
+          %{"amount" => Decimal.new("100")}
+        ]
+      }
+
+      result = run_with_events(
+        "EVENT(ORDER_PLACED, ORDER_TOTAL, order_data) - EVENT(RETURN_PROCESSED, RETURN_TOTAL, adjustments)",
+        context, formulas
+      )
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("700"))
+    end
+
+    test "EVENT in CASE expression" do
+      formulas = %{"P.FEE" => "amount * rate"}
+      context = %{
+        "currency" => "USD",
+        "amount" => Decimal.new("100"),
+        "rate" => Decimal.new("0.03")
+      }
+
+      result = run_with_events("""
+        CASE
+          WHEN currency = 'USD' THEN EVENT(P, FEE)
+          ELSE 0
+        END
+      """, context, formulas)
+
+      assert {:ok, value} = result
+      assert Decimal.equal?(value, Decimal.new("3.00"))
+    end
+
+    test "circular EVENT reference detected" do
+      formulas = %{
+        "A.X" => "EVENT(B, Y)",
+        "B.Y" => "EVENT(A, X)"
+      }
+
+      assert {:error, "Circular reference detected: A.X"} =
+        run_with_events("EVENT(A, X)", %{}, formulas)
+    end
+
+    test "EVENT with missing formula returns error" do
+      assert {:error, "No formula found for EVENT(UNKNOWN, MISSING_SUBTYPE)"} =
+        run_with_events("EVENT(UNKNOWN, MISSING_SUBTYPE)", %{}, %{})
+    end
+
+    test "nested EVENT: event_b references event_a" do
+      formulas = %{
+        "A.CALC" => "amount * 2",
+        "B.CALC" => "EVENT(A, CALC) + 10"
+      }
+      context = %{"amount" => Decimal.new("50")}
+
+      # B.CALC = EVENT(A, CALC) + 10 = (50 * 2) + 10 = 110
+      assert {:ok, result} = run_with_events("EVENT(B, CALC)", context, formulas)
+      assert Decimal.equal?(result, Decimal.new("110"))
+    end
+  end
+
+  describe "edge cases" do
+    test "empty string literal" do
+      assert {:ok, ""} = run("SELECT ''")
+    end
+
+    test "zero values" do
+      assert {:ok, value} = run("SELECT 0")
+      assert Decimal.equal?(value, Decimal.new("0"))
+    end
+
+    test "negative result" do
+      assert {:ok, value} = run("SELECT 10 - 20")
+      assert Decimal.equal?(value, Decimal.new("-10"))
+    end
+
+    test "decimal precision maintained" do
+      assert {:ok, value} = run("SELECT 1 / 3")
+      # Decimal division maintains precision
+      assert %Decimal{} = value
+    end
+
+    test "whitespace handling" do
+      assert {:ok, _} = run("SELECT    price   /   rate")
+      assert {:ok, _} = run("SELECT\n  price\n  /\n  rate")
+    end
+
+    test "case insensitive keywords" do
+      assert {:ok, _} = run("select price")
+      assert {:ok, _} = run("SELECT CASE when category = 'B' then price ELSE 0 end")
+    end
+
+    test "SELECT is optional" do
+      # All these should work without SELECT
+      assert {:ok, _} = run("price")
+      assert {:ok, _} = run("price / rate")
+      assert {:ok, _} = run("(price / rate) + discount")
+      assert {:ok, _} = run("CASE WHEN category = 'B' THEN price ELSE quantity END")
+      assert {:ok, _} = run("ROUND(price, 2)")
+    end
+  end
+
+  describe "IN operator" do
+    test "string IN list - match" do
+      assert {:ok, true} = run("category IN ('A', 'B', 'C')")
+    end
+
+    test "string IN list - no match" do
+      assert {:ok, false} = run("category IN ('X', 'Y')")
+    end
+
+    test "number IN list" do
+      context = %{"country_id" => Decimal.new("33")}
+      assert {:ok, true} = run("country_id IN (33, 44, 55)", context)
+    end
+
+    test "NOT IN" do
+      assert {:ok, true} = run("category NOT IN ('X', 'Y')")
+      assert {:ok, false} = run("category NOT IN ('A', 'B')")
+    end
+
+    test "IN combined with AND" do
+      assert {:ok, true} = run("category IN ('A', 'B') AND status = 'completed'")
+    end
+
+    test "IN combined with OR" do
+      assert {:ok, true} = run("category IN ('X', 'Y') OR status = 'completed'")
+    end
+  end
+
+  describe "IS / IS NOT operator" do
+    @is_context %{
+      "a" => Decimal.new("1.00"),
+      "b" => nil,
+      "flag" => true,
+      "tag" => "x"
+    }
+
+    test "IS NULL - true when field is nil" do
+      assert {:ok, true} = run("b IS NULL", @is_context)
+    end
+
+    test "IS NULL - false when field is not nil" do
+      assert {:ok, false} = run("a IS NULL", @is_context)
+    end
+
+    test "IS NOT NULL - true when field is not nil" do
+      assert {:ok, true} = run("a IS NOT NULL", @is_context)
+    end
+
+    test "IS NOT NULL - false when field is nil" do
+      assert {:ok, false} = run("b IS NOT NULL", @is_context)
+    end
+
+    test "IS TRUE - true when field is true" do
+      assert {:ok, true} = run("flag IS TRUE", @is_context)
+    end
+
+    test "IS TRUE - false when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, false} = run("flag IS TRUE", ctx)
+    end
+
+    test "IS FALSE - true when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, true} = run("flag IS FALSE", ctx)
+    end
+
+    test "IS NOT TRUE - true when field is false" do
+      ctx = Map.put(@is_context, "flag", false)
+      assert {:ok, true} = run("flag IS NOT TRUE", ctx)
+    end
+
+    test "IS NOT FALSE - true when field is true" do
+      assert {:ok, true} = run("flag IS NOT FALSE", @is_context)
+    end
+
+    test "IS NULL in CASE WHEN" do
+      result = run("""
+        CASE
+          WHEN b IS NULL THEN 'missing'
+          ELSE 'present'
+        END
+      """, @is_context)
+      assert {:ok, "missing"} = result
+    end
+
+    test "IS NOT NULL combined with AND" do
+      assert {:ok, true} = run("a IS NOT NULL AND tag = 'x'", @is_context)
+    end
+  end
+
+  describe "LIKE operator" do
+    test "LIKE with % wildcard - contains" do
+      assert {:ok, true} = run("label LIKE '%world%'")
+    end
+
+    test "LIKE with % wildcard - starts with" do
+      assert {:ok, true} = run("label LIKE 'hello%'")
+    end
+
+    test "LIKE with % wildcard - ends with" do
+      assert {:ok, true} = run("label LIKE '%world'")
+    end
+
+    test "LIKE exact match" do
+      assert {:ok, true} = run("label LIKE 'hello world'")
+      assert {:ok, false} = run("label LIKE 'hello'")
+    end
+
+    test "LIKE with _ wildcard" do
+      assert {:ok, true} = run("category LIKE '_'")
+      assert {:ok, false} = run("label LIKE '_'")
+    end
+
+    test "LIKE is case-insensitive" do
+      assert {:ok, true} = run("label LIKE 'HELLO WORLD'")
+      assert {:ok, true} = run("label LIKE '%WORLD'")
+      assert {:ok, true} = run("status LIKE 'COMPLETED'")
+    end
+
+    test "NOT LIKE" do
+      assert {:ok, true} = run("label NOT LIKE '%xyz%'")
+      assert {:ok, false} = run("label NOT LIKE '%world%'")
+    end
+
+    test "LIKE combined with AND" do
+      assert {:ok, true} = run("label LIKE '%hello%' AND status = 'completed'")
+    end
+
+    test "LIKE and IN combined" do
+      assert {:ok, true} = run("category IN ('A', 'B') AND label LIKE '%world%'")
+    end
+  end
+end
