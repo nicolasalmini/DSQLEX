@@ -86,6 +86,14 @@ defmodule Dsqlex.LexerTest do
     test "identifier starting with underscore" do
       assert {:ok, [{:identifier, "_private"}]} = Lexer.tokenize("_private")
     end
+
+    test "predicate-style identifier ending with question mark" do
+      assert {:ok, [{:identifier, "enabled?"}]} = Lexer.tokenize("enabled?")
+    end
+
+    test "dot-path identifier ending with question mark" do
+      assert {:ok, [{:identifier, "config.enabled?"}]} = Lexer.tokenize("config.enabled?")
+    end
   end
 
   describe "tokenize/1 - keywords" do

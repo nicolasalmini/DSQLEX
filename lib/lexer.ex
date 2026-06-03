@@ -101,6 +101,8 @@ defmodule Dsqlex.Lexer do
     consume_identifier(rest, acc <> "." <> <<c>>)
   end
 
+  defp consume_identifier(<<"?", rest::binary>>, acc), do: {acc <> "?", rest}
+
   defp consume_identifier(rest, acc), do: {acc, rest}
 
   defp consume_string(input), do: consume_string(input, "")
