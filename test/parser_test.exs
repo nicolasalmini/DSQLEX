@@ -26,6 +26,10 @@ defmodule Dsqlex.ParserTest do
       assert {:ok, {:select, {:identifier, "x"}}} = parse("SELECT x")
     end
 
+    test "parses predicate-style identifier ending with question mark" do
+      assert {:ok, {:select, {:identifier, "enabled?"}}} = parse("SELECT enabled?")
+    end
+
     test "parses boolean" do
       assert {:ok, {:select, {:boolean, true}}} = parse("SELECT TRUE")
       assert {:ok, {:select, {:boolean, false}}} = parse("SELECT FALSE")

@@ -19,7 +19,8 @@ defmodule Dsqlex.IntegrationTest do
     "label" => "hello world",
     "tax" => Decimal.new("10.00"),
     "discount" => Decimal.new("2.00"),
-    "bonus" => nil
+    "bonus" => nil,
+    "enabled?" => true
   }
 
   # Helper to run full pipeline
@@ -44,6 +45,10 @@ defmodule Dsqlex.IntegrationTest do
 
     test "select a string" do
       assert {:ok, "hello"} = run("SELECT 'hello'")
+    end
+
+    test "select a predicate-style field" do
+      assert {:ok, true} = run("SELECT enabled?")
     end
   end
 
