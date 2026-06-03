@@ -1,7 +1,7 @@
 defmodule Dsqlex.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/nicolasalmini/DSQLEX"
 
   def project do
@@ -41,14 +41,14 @@ defmodule Dsqlex.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib mix.exs README.md LICENSE)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md"]
+      extras: ["README.md", "CHANGELOG.md"]
     ]
   end
 end
