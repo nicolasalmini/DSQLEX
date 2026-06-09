@@ -231,6 +231,36 @@ defmodule Dsqlex.IntegrationTest do
       """)
       assert {:ok, "Category: B"} = result
     end
+
+    test "LEAST with numbers" do
+      assert {:ok, value} = run("LEAST(discount, tax, rate)")
+      assert Decimal.equal?(value, Decimal.new("2.00"))
+    end
+
+    test "GREATEST with numbers" do
+      assert {:ok, value} = run("GREATEST(discount, tax, rate)")
+      assert Decimal.equal?(value, Decimal.new("10.00"))
+    end
+
+    test "LEAST returns NULL when an argument is NULL" do
+      assert {:ok, nil} = run("LEAST(tax, bonus, rate)")
+    end
+
+    test "GREATEST returns NULL when an argument is NULL" do
+      assert {:ok, nil} = run("GREATEST(tax, bonus, rate)")
+    end
+
+    test "LEAST/GREATEST with Dates" do
+      context = %{"start_date" => ~D[2023-01-15], "end_date" => ~D[2023-06-30]}
+      assert {:ok, ~D[2023-01-15]} = run("LEAST(start_date, end_date)", context)
+      assert {:ok, ~D[2023-06-30]} = run("GREATEST(start_date, end_date)", context)
+    end
+
+    test "GREATEST as a floor inside arithmetic" do
+      # ensure the result is never below zero: GREATEST(price - 600, 0)
+      assert {:ok, value} = run("GREATEST((price - 600), 0)")
+      assert Decimal.equal?(value, Decimal.new("0"))
+    end
   end
 
   describe "advanced calculation scenarios" do

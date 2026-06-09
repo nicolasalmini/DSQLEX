@@ -148,6 +148,8 @@ defmodule Dsqlex.Lexer do
       "NVL"      -> {:function, :coalesce} # alias for COALESCE
       "ABS"      -> {:function, :abs}
       "CONCAT"   -> {:function, :concat}
+      "LEAST"    -> {:function, :least}
+      "GREATEST" -> {:function, :greatest}
       "EVENT"    -> {:function, :event}
       _ ->          {:identifier, word}
     end

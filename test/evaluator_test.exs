@@ -316,6 +316,64 @@ defmodule Dsqlex.EvaluatorTest do
       assert {:ok, "Value: 100.00"} = Evaluator.evaluate(ast, @context)
     end
 
+    test "LEAST returns smallest number" do
+      ast = select(call(:least, [num("3"), num("1"), num("2")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("1"))
+    end
+
+    test "GREATEST returns largest number" do
+      ast = select(call(:greatest, [num("3"), num("1"), num("2")]))
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("3"))
+    end
+
+    test "LEAST/GREATEST with a single argument returns it" do
+      assert {:ok, r1} = Evaluator.evaluate(select(call(:least, [num("7")])), @context)
+      assert Decimal.equal?(r1, Decimal.new("7"))
+
+      assert {:ok, r2} = Evaluator.evaluate(select(call(:greatest, [num("7")])), @context)
+      assert Decimal.equal?(r2, Decimal.new("7"))
+    end
+
+    test "LEAST returns NULL if any argument is NULL (BigQuery semantics)" do
+      ast = select(call(:least, [num("3"), ident("nullable_field"), num("2")]))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "GREATEST returns NULL if any argument is NULL (BigQuery semantics)" do
+      ast = select(call(:greatest, [num("3"), ident("nullable_field"), num("2")]))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "LEAST/GREATEST compare Dates chronologically" do
+      context = %{"d1" => ~D[2020-01-01], "d2" => ~D[2019-05-05], "d3" => ~D[2021-12-31]}
+
+      assert {:ok, ~D[2019-05-05]} =
+               Evaluator.evaluate(select(call(:least, [ident("d1"), ident("d2"), ident("d3")])), context)
+
+      assert {:ok, ~D[2021-12-31]} =
+               Evaluator.evaluate(select(call(:greatest, [ident("d1"), ident("d2"), ident("d3")])), context)
+    end
+
+    test "LEAST/GREATEST compare DateTimes chronologically" do
+      context = %{
+        "t1" => ~U[2020-01-01 10:00:00Z],
+        "t2" => ~U[2020-01-01 08:30:00Z]
+      }
+
+      assert {:ok, ~U[2020-01-01 08:30:00Z]} =
+               Evaluator.evaluate(select(call(:least, [ident("t1"), ident("t2")])), context)
+
+      assert {:ok, ~U[2020-01-01 10:00:00Z]} =
+               Evaluator.evaluate(select(call(:greatest, [ident("t1"), ident("t2")])), context)
+    end
+
+    test "LEAST/GREATEST compare strings lexicographically" do
+      assert {:ok, "a"} = Evaluator.evaluate(select(call(:least, [str("b"), str("a"), str("c")])), @context)
+      assert {:ok, "c"} = Evaluator.evaluate(select(call(:greatest, [str("b"), str("a"), str("c")])), @context)
+    end
+
     test "nested functions" do
       # ROUND(COALESCE(x / rate, y), 2)
       ast = select(call(:round, [

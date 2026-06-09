@@ -193,6 +193,16 @@ defmodule Dsqlex.Evaluator do
     |> Enum.join()
   end
 
+  # LEAST/GREATEST — return the smallest/largest argument.
+  # Following BigQuery semantics: if ANY argument is NULL, the result is NULL.
+  defp do_eval({:call, :least, args}, context, opts) do
+    pick_extreme(:least, args, context, opts)
+  end
+
+  defp do_eval({:call, :greatest, args}, context, opts) do
+    pick_extreme(:greatest, args, context, opts)
+  end
+
   # EVENT(type, subtype) — evaluate referenced formula with current context
   defp do_eval({:call, :event, [{:identifier, type}, {:identifier, subtype}]}, context, opts) do
     resolve_event(type, subtype, context, opts)
@@ -267,6 +277,26 @@ defmodule Dsqlex.Evaluator do
   # ============================================================
   # Helpers
   # ============================================================
+
+  # LEAST/GREATEST: NULL propagates (BigQuery semantics). Otherwise reduce by comparison.
+  defp pick_extreme(_kind, [], _context, _opts) do
+    raise "LEAST/GREATEST requires at least one argument"
+  end
+
+  defp pick_extreme(kind, args, context, opts) do
+    values = Enum.map(args, &do_eval(&1, context, opts))
+
+    if Enum.any?(values, &is_nil/1) do
+      nil
+    else
+      target = if kind == :least, do: :lt, else: :gt
+
+      Enum.reduce(values, fn value, acc ->
+        if compare_values(value, acc) == target, do: value, else: acc
+      end)
+    end
+  end
+
   defp to_decimal(%Decimal{} = d), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
@@ -278,6 +308,10 @@ defmodule Dsqlex.Evaluator do
   defp compare_values(%Decimal{} = a, %Decimal{} = b), do: Decimal.compare(a, b)
   defp compare_values(%Decimal{} = a, b), do: Decimal.compare(a, to_decimal(b))
   defp compare_values(a, %Decimal{} = b), do: Decimal.compare(to_decimal(a), b)
+  defp compare_values(%Date{} = a, %Date{} = b), do: Date.compare(a, b)
+  defp compare_values(%DateTime{} = a, %DateTime{} = b), do: DateTime.compare(a, b)
+  defp compare_values(%NaiveDateTime{} = a, %NaiveDateTime{} = b), do: NaiveDateTime.compare(a, b)
+  defp compare_values(%Time{} = a, %Time{} = b), do: Time.compare(a, b)
   defp compare_values(a, b) when is_binary(a) and is_binary(b) do
     cond do
       a == b -> :eq
