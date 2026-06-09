@@ -10,7 +10,7 @@ A SQL-like DSL (Domain Specific Language) for evaluating dynamic calculations in
 - 🔍 **Comparisons**: `=`, `!=`, `<`, `>`, `<=`, `>=`
 - 🔗 **Logical operators**: `AND`, `OR` with same-operator chaining
 - 🔀 **Conditional logic**: `CASE WHEN ... THEN ... ELSE ... END`
-- 📦 **Built-in functions**: `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`
+- 📦 **Built-in functions**: `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`, `LEAST()`, `GREATEST()`
 - ✅ **Validation**: Parse expressions before storing to catch syntax errors early
 - 🎯 **Unambiguous syntax**: Parentheses required for complex expressions
 - 💬 **Comments**: SQL-style line comments (`-- ...`, `# ...`) and block comments (`/* ... */`)
@@ -171,6 +171,8 @@ END
 | `LOWER(string)` | Convert to lowercase | `LOWER(x)` |
 | `ABS(number)` | Absolute value | `ABS(x)` |
 | `CONCAT(a, b, ...)` | Concatenate strings | `CONCAT(a, ' ', b)` |
+| `LEAST(a, b, ...)` | Smallest value (NULL if any arg is NULL) | `LEAST(a, b, 0)` |
+| `GREATEST(a, b, ...)` | Largest value (NULL if any arg is NULL) | `GREATEST(a, b, 0)` |
 
 ## The Parentheses Rule
 

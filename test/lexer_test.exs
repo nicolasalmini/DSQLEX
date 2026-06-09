@@ -132,6 +132,8 @@ defmodule Dsqlex.LexerTest do
       assert {:ok, [{:function, :round}]} = Lexer.tokenize("ROUND")
       assert {:ok, [{:function, :coalesce}]} = Lexer.tokenize("COALESCE")
       assert {:ok, [{:function, :abs}]} = Lexer.tokenize("ABS")
+      assert {:ok, [{:function, :least}]} = Lexer.tokenize("LEAST")
+      assert {:ok, [{:function, :greatest}]} = Lexer.tokenize("GREATEST")
     end
 
     test "NVL is alias for COALESCE" do
