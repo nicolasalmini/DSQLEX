@@ -72,6 +72,10 @@ defmodule Dsqlex.IntegrationTest do
       assert {:ok, result} = run("SELECT ((price / rate) + discount)")
       assert Decimal.equal?(result, Decimal.new("102.00"))
     end
+
+    test "arithmetic with a null operand returns nil" do
+      assert {:ok, nil} = run("SELECT price + bonus")
+    end
   end
 
   describe "comparisons and logic" do
@@ -176,6 +180,10 @@ defmodule Dsqlex.IntegrationTest do
       result = run("SELECT ROUND(price / rate, 2)")
       assert {:ok, value} = result
       assert Decimal.equal?(value, Decimal.new("100.00"))
+    end
+
+    test "ROUND of a null field returns nil" do
+      assert {:ok, nil} = run("SELECT ROUND(bonus, 2)")
     end
 
     test "COALESCE with null" do
