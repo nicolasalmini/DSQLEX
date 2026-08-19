@@ -72,19 +72,19 @@ defmodule Dsqlex.Evaluator do
   # Binary operations - arithmetic
   # ============================================================
   defp do_eval({:binary_op, :plus, left, right}, context, opts) do
-    Decimal.add(to_decimal(do_eval(left, context, opts)), to_decimal(do_eval(right, context, opts)))
+    decimal_binop(&Decimal.add/2, left, right, context, opts)
   end
 
   defp do_eval({:binary_op, :minus, left, right}, context, opts) do
-    Decimal.sub(to_decimal(do_eval(left, context, opts)), to_decimal(do_eval(right, context, opts)))
+    decimal_binop(&Decimal.sub/2, left, right, context, opts)
   end
 
   defp do_eval({:binary_op, :multiply, left, right}, context, opts) do
-    Decimal.mult(to_decimal(do_eval(left, context, opts)), to_decimal(do_eval(right, context, opts)))
+    decimal_binop(&Decimal.mult/2, left, right, context, opts)
   end
 
   defp do_eval({:binary_op, :divide, left, right}, context, opts) do
-    Decimal.div(to_decimal(do_eval(left, context, opts)), to_decimal(do_eval(right, context, opts)))
+    decimal_binop(&Decimal.div/2, left, right, context, opts)
   end
 
   # ============================================================
@@ -164,7 +164,11 @@ defmodule Dsqlex.Evaluator do
   # Function calls
   # ============================================================
   defp do_eval({:call, :round, [value, precision]}, context, opts) do
-    Decimal.round(to_decimal(do_eval(value, context, opts)), do_eval(precision, context, opts) |> Decimal.to_integer())
+    case {do_eval(value, context, opts), do_eval(precision, context, opts)} do
+      {nil, _} -> nil
+      {_, nil} -> nil
+      {v, p} -> Decimal.round(to_decimal(v), to_decimal(p) |> Decimal.to_integer())
+    end
   end
 
   defp do_eval({:call, :coalesce, args}, context, opts) do
@@ -183,7 +187,10 @@ defmodule Dsqlex.Evaluator do
   end
 
   defp do_eval({:call, :abs, [value]}, context, opts) do
-    Decimal.abs(to_decimal(do_eval(value, context, opts)))
+    case do_eval(value, context, opts) do
+      nil -> nil
+      v -> Decimal.abs(to_decimal(v))
+    end
   end
 
   defp do_eval({:call, :concat, args}, context, opts) do
@@ -297,6 +304,18 @@ defmodule Dsqlex.Evaluator do
     end
   end
 
+  defp decimal_binop(fun, left, right, context, opts) do
+    left_val = do_eval(left, context, opts)
+    right_val = do_eval(right, context, opts)
+
+    if is_nil(left_val) or is_nil(right_val) do
+      nil
+    else
+      fun.(to_decimal(left_val), to_decimal(right_val))
+    end
+  end
+
+  defp to_decimal(nil), do: nil
   defp to_decimal(%Decimal{} = d), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
