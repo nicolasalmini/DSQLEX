@@ -110,6 +110,36 @@ defmodule Dsqlex.EvaluatorTest do
       assert {:ok, result} = Evaluator.evaluate(ast, @context)
       assert Decimal.equal?(result, Decimal.new("30"))
     end
+
+    test "addition returns nil when left operand is nil" do
+      ast = select(binop(:plus, ident("nullable_field"), num("5")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "addition returns nil when right operand is nil" do
+      ast = select(binop(:plus, num("5"), ident("nullable_field")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "subtraction returns nil when an operand is nil" do
+      ast = select(binop(:minus, ident("x"), ident("nullable_field")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "multiplication returns nil when an operand is nil" do
+      ast = select(binop(:multiply, ident("nullable_field"), ident("y")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "division returns nil when an operand is nil" do
+      ast = select(binop(:divide, ident("x"), ident("nullable_field")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "nested arithmetic returns nil when an inner operand is nil" do
+      ast = select(binop(:multiply, binop(:plus, ident("nullable_field"), num("5")), num("2")))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
   end
 
   describe "evaluate/2 - comparison" do
@@ -299,6 +329,16 @@ defmodule Dsqlex.EvaluatorTest do
       ast = select(call(:abs, [num("-42")]))
       assert {:ok, result} = Evaluator.evaluate(ast, @context)
       assert Decimal.equal?(result, Decimal.new("42"))
+    end
+
+    test "ROUND returns nil when value is nil" do
+      ast = select(call(:round, [ident("nullable_field"), num("2")]))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
+    end
+
+    test "ABS returns nil when value is nil" do
+      ast = select(call(:abs, [ident("nullable_field")]))
+      assert {:ok, nil} = Evaluator.evaluate(ast, @context)
     end
 
     test "CONCAT with two strings" do

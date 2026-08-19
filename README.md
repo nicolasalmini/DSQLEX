@@ -126,10 +126,10 @@ status_id NOT IN (
 
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `+` | Addition | `SELECT a + b` |
-| `-` | Subtraction | `SELECT a - b` |
-| `*` | Multiplication | `SELECT a * b` |
-| `/` | Division | `SELECT a / b` |
+| `+` | Addition (NULL if any operand is NULL) | `SELECT a + b` |
+| `-` | Subtraction (NULL if any operand is NULL) | `SELECT a - b` |
+| `*` | Multiplication (NULL if any operand is NULL) | `SELECT a * b` |
+| `/` | Division (NULL if any operand is NULL) | `SELECT a / b` |
 
 ### Comparison Operators
 
@@ -165,11 +165,11 @@ END
 
 | Function | Description | Example |
 |----------|-------------|---------|
-| `ROUND(value, precision)` | Round to decimal places | `ROUND(x, 2)` |
+| `ROUND(value, precision)` | Round to decimal places (NULL if value or precision is NULL) | `ROUND(x, 2)` |
 | `COALESCE(a, b, ...)` | Return first non-null | `COALESCE(a, b, 0)` |
 | `UPPER(string)` | Convert to uppercase | `UPPER(x)` |
 | `LOWER(string)` | Convert to lowercase | `LOWER(x)` |
-| `ABS(number)` | Absolute value | `ABS(x)` |
+| `ABS(number)` | Absolute value (NULL if value is NULL) | `ABS(x)` |
 | `CONCAT(a, b, ...)` | Concatenate strings | `CONCAT(a, ' ', b)` |
 | `LEAST(a, b, ...)` | Smallest value (NULL if any arg is NULL) | `LEAST(a, b, 0)` |
 | `GREATEST(a, b, ...)` | Largest value (NULL if any arg is NULL) | `GREATEST(a, b, 0)` |
