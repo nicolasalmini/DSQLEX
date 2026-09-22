@@ -78,6 +78,44 @@ defmodule Dsqlex.IntegrationTest do
     end
   end
 
+  describe "unary minus" do
+    test "negated literal" do
+      assert {:ok, value} = run("SELECT -2.5")
+      assert Decimal.equal?(value, Decimal.new("-2.5"))
+    end
+
+    test "negated field" do
+      assert {:ok, value} = run("SELECT -price")
+      assert Decimal.equal?(value, Decimal.new("-500.00"))
+    end
+
+    test "multiplication by negative literal" do
+      assert {:ok, value} = run("SELECT price * -1")
+      assert Decimal.equal?(value, Decimal.new("-500.00"))
+    end
+
+    test "negated parenthesized expression" do
+      assert {:ok, value} = run("SELECT -(1 + 2)")
+      assert Decimal.equal?(value, Decimal.new("-3"))
+    end
+
+    test "subtraction of a negated operand" do
+      assert {:ok, value} = run("SELECT 5 - - 2")
+      assert Decimal.equal?(value, Decimal.new("7"))
+    end
+
+    test "negative value in IN list" do
+      context = %{"balance" => Decimal.new("-42")}
+      assert {:ok, true} = run("balance IN (-42, 0)", context)
+      assert {:ok, false} = run("balance IN (-41, 0)", context)
+    end
+
+    test "negating NULL returns nil" do
+      assert {:ok, nil} = run("SELECT -bonus")
+      assert {:ok, nil} = run("SELECT -NULL")
+    end
+  end
+
   describe "comparisons and logic" do
     test "equality check" do
       assert {:ok, true} = run("SELECT category = 'B'")

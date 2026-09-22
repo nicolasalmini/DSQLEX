@@ -111,6 +111,42 @@ defmodule Dsqlex.ParserTest do
         parse("SELECT a - b - (c - d) / e")
     end
 
+    test "parses unary minus on a literal" do
+      assert {:ok, {:select, {:unary_op, :minus, {:number, "1"}}}} = parse("SELECT -1")
+    end
+
+    test "parses unary minus on the right side of multiplication" do
+      assert {:ok,
+              {:select,
+               {:binary_op, :multiply, {:identifier, "amount"},
+                {:unary_op, :minus, {:number, "1"}}}}} =
+               parse("SELECT amount * -1")
+    end
+
+    test "parses unary minus on a parenthesized expression" do
+      assert {:ok,
+              {:select, {:unary_op, :minus, {:binary_op, :plus, {:number, "1"}, {:number, "2"}}}}} =
+               parse("SELECT -(1 + 2)")
+    end
+
+    test "parses subtraction of a negated operand" do
+      assert {:ok,
+              {:select, {:binary_op, :minus, {:number, "5"}, {:unary_op, :minus, {:number, "2"}}}}} =
+               parse("SELECT 5 - - 2")
+    end
+
+    test "parses unary minus in IN list items" do
+      assert {:ok,
+              {:select,
+               {:in, {:identifier, "x"}, [{:number, "1"}, {:unary_op, :minus, {:number, "2"}}]}}} =
+               parse("x IN (1, -2)")
+    end
+
+    test "rejects mixing additive and multiplicative with a negated operand" do
+      assert {:error, "Ambiguous expression: mixing +/- and *//" <> _} =
+               parse("SELECT 1 + 2 * -3")
+    end
+
     test "allows chained arithmetic with parentheses" do
       assert {:ok, {:select, {:binary_op, :plus, {:binary_op, :plus, _, _}, _}}} =
         parse("SELECT (1 + 2) + 3")

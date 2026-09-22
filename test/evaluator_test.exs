@@ -142,6 +142,39 @@ defmodule Dsqlex.EvaluatorTest do
     end
   end
 
+  describe "evaluate/2 - unary minus" do
+    test "negates a number literal" do
+      ast = select({:unary_op, :minus, num("5")})
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("-5"))
+    end
+
+    test "negates a Decimal context value" do
+      ast = select({:unary_op, :minus, ident("x")})
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("-100.00"))
+    end
+
+    test "negates a nested arithmetic expression" do
+      ast = select({:unary_op, :minus, binop(:plus, num("1"), num("2"))})
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("-3"))
+    end
+
+    test "coerces integer values" do
+      ast = select({:unary_op, :minus, ident("group_id")})
+      assert {:ok, result} = Evaluator.evaluate(ast, @context)
+      assert Decimal.equal?(result, Decimal.new("-33"))
+    end
+
+    test "propagates nil" do
+      assert {:ok, nil} = Evaluator.evaluate(select({:unary_op, :minus, null()}), @context)
+
+      assert {:ok, nil} =
+               Evaluator.evaluate(select({:unary_op, :minus, ident("nullable_field")}), @context)
+    end
+  end
+
   describe "evaluate/2 - comparison" do
     test "equality - true" do
       ast = select(binop(:eq, ident("category"), str("B")))
