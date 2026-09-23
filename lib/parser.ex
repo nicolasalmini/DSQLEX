@@ -206,6 +206,12 @@ defmodule Dsqlex.Parser do
   # ============================================================
   # LEVEL 4: Primary expressions (highest precedence)
   # ============================================================
+  defp parse_primary([{:operator, :minus} | rest]) do
+    with {:ok, operand, rest} <- parse_primary(rest) do
+      {:ok, {:unary_op, :minus, operand}, rest}
+    end
+  end
+
   defp parse_primary([{:number, n} | rest]), do: {:ok, {:number, n}, rest}
   defp parse_primary([{:string, s} | rest]), do: {:ok, {:string, s}, rest}
   defp parse_primary([{:identifier, name} | rest]), do: {:ok, {:identifier, name}, rest}

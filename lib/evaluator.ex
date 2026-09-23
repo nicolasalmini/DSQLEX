@@ -87,6 +87,13 @@ defmodule Dsqlex.Evaluator do
     decimal_binop(&Decimal.div/2, left, right, context, opts)
   end
 
+  defp do_eval({:unary_op, :minus, operand}, context, opts) do
+    case do_eval(operand, context, opts) do
+      nil -> nil
+      value -> Decimal.negate(to_decimal(value))
+    end
+  end
+
   # ============================================================
   # Binary operations - comparison
   # ============================================================
