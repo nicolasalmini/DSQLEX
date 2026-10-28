@@ -301,7 +301,7 @@ defmodule Dsqlex.Evaluator do
     end
 
     new_visited = MapSet.put(visited, event_key)
-    new_opts = Keyword.put(opts, :visited, new_visited)
+    new_opts = opts |> Keyword.put(:visited, new_visited) |> Keyword.delete(:aggregation_root)
 
     case event_resolver.(type, subtype, eval_context, new_opts) do
       {:ok, result} -> result
@@ -377,18 +377,15 @@ defmodule Dsqlex.Evaluator do
 
   defp aggregate(fun, source, expr, context, opts) do
     name = fun |> Atom.to_string() |> String.upcase()
-    root = Map.get(context, "ROOT", context)
+    root = Keyword.get(opts, :aggregation_root, context)
+    element_opts = Keyword.put(opts, :aggregation_root, root)
 
     results =
       source
       |> aggregation_list(name, context, opts)
       |> Stream.with_index()
       |> Stream.map(fn {element, index} ->
-        unless is_map(element) and not is_struct(element) do
-          raise "#{name} source '#{source}' element #{index} is not a map"
-        end
-
-        {do_eval(expr, Map.put(element, "ROOT", root), opts), index}
+        {do_eval(expr, Map.put(element, "ROOT", root), element_opts), index}
       end)
 
     case fun do
@@ -405,8 +402,14 @@ defmodule Dsqlex.Evaluator do
 
   defp aggregation_list(source, name, context, opts) do
     case do_eval({:identifier, source}, context, Keyword.put(opts, :strict_lists, true)) do
-      list when is_list(list) -> list
-      other -> raise "#{name} source '#{source}' must be a list of maps (got #{type_name(other)})"
+      list when is_list(list) ->
+        case Enum.find_index(list, fn element -> not is_map(element) or is_struct(element) end) do
+          nil -> list
+          index -> raise "#{name} source '#{source}' element #{index} is not a map"
+        end
+
+      other ->
+        raise "#{name} source '#{source}' must be a list of maps (got #{type_name(other)})"
     end
   end
 

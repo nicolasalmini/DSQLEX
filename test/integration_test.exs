@@ -843,6 +843,30 @@ defmodule Dsqlex.IntegrationTest do
       assert Decimal.equal?(result, Decimal.new("8"))
     end
 
+    test "a context field named ROOT does not replace the aggregation root" do
+      context = Map.put(@order, "ROOT", %{"cutoff_date" => "2099-01-01"})
+
+      assert {:ok, result} =
+        run("SUM(items, CASE WHEN shipped_on <= ROOT.cutoff_date THEN amount ELSE 0 END)", context)
+
+      assert Decimal.equal?(result, Decimal.new("100"))
+    end
+
+    test "a non-map element fails even when ANY or ALL could stop early" do
+      context = %{"items" => [%{}, nil]}
+
+      assert {:error, "ANY source 'items' element 1 is not a map"} = run("ANY(items, TRUE)", context)
+      assert {:error, "ALL source 'items' element 1 is not a map"} = run("ALL(items, FALSE)", context)
+    end
+
+    test "a formula referenced through EVENT() inside an aggregation has its own ROOT" do
+      formulas = %{"ITEM.GROSS" => "SUM(discounts, ROOT.amount)"}
+
+      # item 0: one discount * 100, item 1: two discounts * 40
+      assert {:ok, result} = run_with_events("SUM(items, EVENT(ITEM, GROSS))", @order, formulas)
+      assert Decimal.equal?(result, Decimal.new("180"))
+    end
+
     test "ROOT is undefined outside an aggregation" do
       assert {:error, "Unknown field: ROOT.cutoff_date (failed at 'ROOT')"} = run("ROOT.cutoff_date", @order)
     end
