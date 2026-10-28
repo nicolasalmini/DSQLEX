@@ -10,7 +10,7 @@ A SQL-like DSL (Domain Specific Language) for evaluating dynamic calculations in
 - 🔍 **Comparisons**: `=`, `!=`, `<`, `>`, `<=`, `>=`
 - 🔗 **Logical operators**: `AND`, `OR` with same-operator chaining
 - 🔀 **Conditional logic**: `CASE WHEN ... THEN ... ELSE ... END`
-- 📦 **Built-in functions**: `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`, `LEAST()`, `GREATEST()`
+- 📦 **Built-in functions**: `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`, `LEAST()`, `GREATEST()`, and list aggregation with `SUM()`, `COUNT()`, `ANY()`, `ALL()`
 - ✅ **Validation**: Parse expressions before storing to catch syntax errors early
 - 🎯 **Unambiguous syntax**: Parentheses required for complex expressions
 - 💬 **Comments**: SQL-style line comments (`-- ...`, `# ...`) and block comments (`/* ... */`)
@@ -173,6 +173,29 @@ END
 | `CONCAT(a, b, ...)` | Concatenate strings | `CONCAT(a, ' ', b)` |
 | `LEAST(a, b, ...)` | Smallest value (NULL if any arg is NULL) | `LEAST(a, b, 0)` |
 | `GREATEST(a, b, ...)` | Largest value (NULL if any arg is NULL) | `GREATEST(a, b, 0)` |
+| `SUM(list, expr)` | Sum of `expr` over each element (0 for an empty list) | `SUM(items, amount)` |
+| `COUNT(list)` / `COUNT(list, cond)` | Number of elements / of elements where `cond` is truthy | `COUNT(items, amount > 0)` |
+| `ANY(list, cond)` | True if `cond` holds for at least one element (false for an empty list) | `ANY(items, status = 'open')` |
+| `ALL(list, cond)` | True if `cond` holds for every element (true for an empty list) | `ALL(items, amount > 0)` |
+
+### List Aggregation
+
+`SUM`, `COUNT`, `ANY` and `ALL` evaluate their second argument once per element of a list of maps. Bare identifiers read the element; `ROOT.<path>` reads the context the expression was evaluated against (still the outermost context inside nested aggregations). A nil element result in `SUM` is an error that names the element index, so return `0` for elements that contribute nothing.
+
+```elixir
+context = %{
+  "cutoff_date" => "2024-03-10",
+  "items" => [
+    %{"amount" => Decimal.new("100"), "shipped_on" => "2024-03-01"},
+    %{"amount" => Decimal.new("40"), "shipped_on" => "2024-03-15"}
+  ]
+}
+
+{:ok, result} = Dsqlex.eval("SUM(items, CASE WHEN shipped_on <= ROOT.cutoff_date THEN amount ELSE 0 END)", context)
+# => {:ok, Decimal.new("100")}
+```
+
+By default a dot path through a list (`items.amount`) sums the element values when they are all numeric and returns the list otherwise. Pass `strict_lists: true` to `Dsqlex.eval/3` to turn that, and any list value used where a scalar is expected, into an error that points at the list functions.
 
 ## The Parentheses Rule
 

@@ -46,7 +46,7 @@ defmodule Dsqlex.Evaluator do
       :error ->
         # Try dot-path access for nested maps (e.g. "config.pricing.margin_rate")
         if String.contains?(name, ".") do
-          resolve_dot_path(name, context)
+          resolve_dot_path(name, context, opts)
         else
           resolver = Keyword.get(opts, :resolver)
 
@@ -88,7 +88,7 @@ defmodule Dsqlex.Evaluator do
   end
 
   defp do_eval({:unary_op, :minus, operand}, context, opts) do
-    case do_eval(operand, context, opts) do
+    case eval_scalar(operand, context, opts) do
       nil -> nil
       value -> Decimal.negate(to_decimal(value))
     end
@@ -98,27 +98,27 @@ defmodule Dsqlex.Evaluator do
   # Binary operations - comparison
   # ============================================================
   defp do_eval({:binary_op, :eq, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) == :eq
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) == :eq
   end
 
   defp do_eval({:binary_op, :neq, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) != :eq
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) != :eq
   end
 
   defp do_eval({:binary_op, :lt, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) == :lt
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) == :lt
   end
 
   defp do_eval({:binary_op, :gt, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) == :gt
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) == :gt
   end
 
   defp do_eval({:binary_op, :lte, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) in [:lt, :eq]
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) in [:lt, :eq]
   end
 
   defp do_eval({:binary_op, :gte, left, right}, context, opts) do
-    compare_values(do_eval(left, context, opts), do_eval(right, context, opts)) in [:gt, :eq]
+    compare_values(eval_scalar(left, context, opts), eval_scalar(right, context, opts)) in [:gt, :eq]
   end
 
   # ============================================================
@@ -136,27 +136,27 @@ defmodule Dsqlex.Evaluator do
   # IN / NOT IN
   # ============================================================
   defp do_eval({:in, expr, items}, context, opts) do
-    value = do_eval(expr, context, opts)
-    Enum.any?(items, fn item -> compare_values(value, do_eval(item, context, opts)) == :eq end)
+    value = eval_scalar(expr, context, opts)
+    Enum.any?(items, fn item -> compare_values(value, eval_scalar(item, context, opts)) == :eq end)
   end
 
   defp do_eval({:not_in, expr, items}, context, opts) do
-    value = do_eval(expr, context, opts)
-    not Enum.any?(items, fn item -> compare_values(value, do_eval(item, context, opts)) == :eq end)
+    value = eval_scalar(expr, context, opts)
+    not Enum.any?(items, fn item -> compare_values(value, eval_scalar(item, context, opts)) == :eq end)
   end
 
   # ============================================================
   # LIKE / NOT LIKE (case-insensitive, MySQL/MariaDB default)
   # ============================================================
   defp do_eval({:like, expr, pattern_expr}, context, opts) do
-    value = do_eval(expr, context, opts) |> to_string()
-    pattern = do_eval(pattern_expr, context, opts) |> to_string()
+    value = eval_scalar(expr, context, opts) |> to_string()
+    pattern = eval_scalar(pattern_expr, context, opts) |> to_string()
     like_match?(value, pattern)
   end
 
   defp do_eval({:not_like, expr, pattern_expr}, context, opts) do
-    value = do_eval(expr, context, opts) |> to_string()
-    pattern = do_eval(pattern_expr, context, opts) |> to_string()
+    value = eval_scalar(expr, context, opts) |> to_string()
+    pattern = eval_scalar(pattern_expr, context, opts) |> to_string()
     not like_match?(value, pattern)
   end
 
@@ -171,7 +171,7 @@ defmodule Dsqlex.Evaluator do
   # Function calls
   # ============================================================
   defp do_eval({:call, :round, [value, precision]}, context, opts) do
-    case {do_eval(value, context, opts), do_eval(precision, context, opts)} do
+    case {eval_scalar(value, context, opts), eval_scalar(precision, context, opts)} do
       {nil, _} -> nil
       {_, nil} -> nil
       {v, p} -> Decimal.round(to_decimal(v), to_decimal(p) |> Decimal.to_integer())
@@ -186,15 +186,15 @@ defmodule Dsqlex.Evaluator do
   end
 
   defp do_eval({:call, :upper, [value]}, context, opts) do
-    do_eval(value, context, opts) |> to_string() |> String.upcase()
+    eval_scalar(value, context, opts) |> to_string() |> String.upcase()
   end
 
   defp do_eval({:call, :lower, [value]}, context, opts) do
-    do_eval(value, context, opts) |> to_string() |> String.downcase()
+    eval_scalar(value, context, opts) |> to_string() |> String.downcase()
   end
 
   defp do_eval({:call, :abs, [value]}, context, opts) do
-    case do_eval(value, context, opts) do
+    case eval_scalar(value, context, opts) do
       nil -> nil
       v -> Decimal.abs(to_decimal(v))
     end
@@ -202,7 +202,7 @@ defmodule Dsqlex.Evaluator do
 
   defp do_eval({:call, :concat, args}, context, opts) do
     args
-    |> Enum.map(&do_eval(&1, context, opts))
+    |> Enum.map(&eval_scalar(&1, context, opts))
     |> Enum.map(&to_string/1)
     |> Enum.join()
   end
@@ -246,6 +246,46 @@ defmodule Dsqlex.Evaluator do
     raise "EVENT requires 2 or 3 arguments: EVENT(type, subtype) or EVENT(type, subtype, context_source)"
   end
 
+  # ============================================================
+  # List aggregations - evaluate an expression once per element of a list of maps.
+  # Bare identifiers resolve in the element; ROOT.<path> resolves in the formula's root context.
+  # ============================================================
+  defp do_eval({:call, :sum, [{:identifier, source}, expr]}, context, opts) do
+    aggregate(:sum, source, expr, context, opts)
+  end
+
+  defp do_eval({:call, :sum, _args}, _context, _opts) do
+    raise "SUM requires (list_field, expression)"
+  end
+
+  defp do_eval({:call, :count, [{:identifier, source}]}, context, opts) do
+    aggregate(:count, source, {:boolean, true}, context, opts)
+  end
+
+  defp do_eval({:call, :count, [{:identifier, source}, condition]}, context, opts) do
+    aggregate(:count, source, condition, context, opts)
+  end
+
+  defp do_eval({:call, :count, _args}, _context, _opts) do
+    raise "COUNT requires (list_field) or (list_field, condition)"
+  end
+
+  defp do_eval({:call, :any, [{:identifier, source}, condition]}, context, opts) do
+    aggregate(:any, source, condition, context, opts)
+  end
+
+  defp do_eval({:call, :any, _args}, _context, _opts) do
+    raise "ANY requires (list_field, condition)"
+  end
+
+  defp do_eval({:call, :all, [{:identifier, source}, condition]}, context, opts) do
+    aggregate(:all, source, condition, context, opts)
+  end
+
+  defp do_eval({:call, :all, _args}, _context, _opts) do
+    raise "ALL requires (list_field, condition)"
+  end
+
   defp resolve_event(type, subtype, eval_context, opts) do
     event_resolver = Keyword.get(opts, :event_resolver)
 
@@ -261,7 +301,7 @@ defmodule Dsqlex.Evaluator do
     end
 
     new_visited = MapSet.put(visited, event_key)
-    new_opts = Keyword.put(opts, :visited, new_visited)
+    new_opts = opts |> Keyword.put(:visited, new_visited) |> Keyword.delete(:aggregation_root)
 
     case event_resolver.(type, subtype, eval_context, new_opts) do
       {:ok, result} -> result
@@ -298,7 +338,7 @@ defmodule Dsqlex.Evaluator do
   end
 
   defp pick_extreme(kind, args, context, opts) do
-    values = Enum.map(args, &do_eval(&1, context, opts))
+    values = Enum.map(args, &eval_scalar(&1, context, opts))
 
     if Enum.any?(values, &is_nil/1) do
       nil
@@ -312,8 +352,8 @@ defmodule Dsqlex.Evaluator do
   end
 
   defp decimal_binop(fun, left, right, context, opts) do
-    left_val = do_eval(left, context, opts)
-    right_val = do_eval(right, context, opts)
+    left_val = eval_scalar(left, context, opts)
+    right_val = eval_scalar(right, context, opts)
 
     if is_nil(left_val) or is_nil(right_val) do
       nil
@@ -321,6 +361,77 @@ defmodule Dsqlex.Evaluator do
       fun.(to_decimal(left_val), to_decimal(right_val))
     end
   end
+
+  defp eval_scalar(node, context, opts) do
+    value = do_eval(node, context, opts)
+
+    if is_list(value) and Keyword.get(opts, :strict_lists, false) do
+      raise "List value where a scalar was expected (#{operand_name(node)}); use SUM, COUNT, ANY or ALL"
+    end
+
+    value
+  end
+
+  defp operand_name({:identifier, name}), do: name
+  defp operand_name(_node), do: "expression"
+
+  defp aggregate(fun, source, expr, context, opts) do
+    name = fun |> Atom.to_string() |> String.upcase()
+    root = Keyword.get(opts, :aggregation_root, context)
+    element_opts = Keyword.put(opts, :aggregation_root, root)
+
+    results =
+      source
+      |> aggregation_list(name, context, opts)
+      |> Stream.with_index()
+      |> Stream.map(fn {element, index} ->
+        {do_eval(expr, Map.put(element, "ROOT", root), element_opts), index}
+      end)
+
+    case fun do
+      :sum ->
+        Enum.reduce(results, Decimal.new(0), fn {value, index}, acc ->
+          Decimal.add(acc, sum_operand(value, source, index))
+        end)
+
+      :count -> results |> Enum.count(fn {value, _index} -> value end) |> Decimal.new()
+      :any -> Enum.any?(results, fn {value, _index} -> value end)
+      :all -> Enum.all?(results, fn {value, _index} -> value end)
+    end
+  end
+
+  defp aggregation_list(source, name, context, opts) do
+    case do_eval({:identifier, source}, context, Keyword.put(opts, :strict_lists, true)) do
+      list when is_list(list) ->
+        case Enum.find_index(list, fn element -> not is_map(element) or is_struct(element) end) do
+          nil -> list
+          index -> raise "#{name} source '#{source}' element #{index} is not a map"
+        end
+
+      other ->
+        raise "#{name} source '#{source}' must be a list of maps (got #{type_name(other)})"
+    end
+  end
+
+  defp sum_operand(nil, source, index) do
+    raise "SUM(#{source}, …) element #{index} evaluated to nil; return 0 for elements that contribute nothing"
+  end
+
+  defp sum_operand(value, source, index) do
+    if decimal_like?(value) do
+      to_decimal(value)
+    else
+      raise "SUM(#{source}, …) element #{index} evaluated to a non-numeric value (#{inspect(value)})"
+    end
+  end
+
+  defp type_name(nil), do: "nil"
+  defp type_name(%module{}), do: inspect(module)
+  defp type_name(value) when is_map(value), do: "map"
+  defp type_name(value) when is_binary(value), do: "string"
+  defp type_name(value) when is_boolean(value), do: "boolean"
+  defp type_name(value) when is_number(value), do: "number"
+  defp type_name(value), do: inspect(value)
 
   defp to_decimal(nil), do: nil
   defp to_decimal(%Decimal{} = d), do: d
@@ -367,22 +478,31 @@ defmodule Dsqlex.Evaluator do
     Regex.match?(regex, value)
   end
 
-  defp resolve_dot_path(path, context) do
+  defp resolve_dot_path(path, context, opts) do
     parts = String.split(path, ".")
-    resolve_dot_parts(parts, context, path)
+    resolve_dot_parts(parts, context, path, Keyword.get(opts, :strict_lists, false))
   end
 
-  defp resolve_dot_parts([], acc, _path), do: acc
+  defp resolve_dot_parts([], acc, _path, _strict), do: acc
 
-  defp resolve_dot_parts([key | rest], acc, path) when is_map(acc) do
+  defp resolve_dot_parts([key | rest], acc, path, strict) when is_map(acc) do
     case Map.fetch(acc, key) do
-      {:ok, value} -> resolve_dot_parts(rest, value, path)
+      {:ok, value} -> resolve_dot_parts(rest, value, path, strict)
       :error -> raise "Unknown field: #{path} (failed at '#{key}')"
     end
   end
 
-  defp resolve_dot_parts([_key | _] = remaining, acc, path) when is_list(acc) do
-    results = Enum.map(acc, fn item -> resolve_dot_parts(remaining, item, path) end)
+  defp resolve_dot_parts(remaining, acc, path, true) when is_list(acc) do
+    parts = String.split(path, ".")
+    list_field = parts |> Enum.take(length(parts) - length(remaining)) |> Enum.join(".")
+    rest = Enum.join(remaining, ".")
+
+    raise "Cannot read '#{rest}' through list field '#{list_field}'; " <>
+            "use SUM(#{list_field}, #{rest}) or another list function (COUNT, ANY, ALL)"
+  end
+
+  defp resolve_dot_parts([_key | _] = remaining, acc, path, false) when is_list(acc) do
+    results = Enum.map(acc, fn item -> resolve_dot_parts(remaining, item, path, false) end)
 
     if Enum.all?(results, &decimal_like?/1) do
       results
@@ -393,7 +513,7 @@ defmodule Dsqlex.Evaluator do
     end
   end
 
-  defp resolve_dot_parts([key | _rest], _acc, path) do
+  defp resolve_dot_parts([key | _rest], _acc, path, _strict) do
     raise "Cannot access '#{key}' on non-map value in path '#{path}'"
   end
 

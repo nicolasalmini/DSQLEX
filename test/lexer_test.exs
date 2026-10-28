@@ -150,6 +150,21 @@ defmodule Dsqlex.LexerTest do
       assert {:ok, [{:function, :round}]} = Lexer.tokenize("round")
       assert {:ok, [{:function, :round}]} = Lexer.tokenize("Round")
     end
+
+    test "list aggregation functions" do
+      assert {:ok, [{:function, :count}]} = Lexer.tokenize("COUNT")
+      assert {:ok, [{:function, :any}]} = Lexer.tokenize("any")
+      assert {:ok, [{:function, :all}]} = Lexer.tokenize("All")
+
+      assert {:ok, [
+        {:function, :sum},
+        {:lparen},
+        {:identifier, "items"},
+        {:comma},
+        {:identifier, "amount"},
+        {:rparen}
+      ]} = Lexer.tokenize("SUM(items, amount)")
+    end
   end
 
   describe "tokenize/1 - dot-path identifiers" do
