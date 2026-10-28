@@ -742,4 +742,160 @@ defmodule Dsqlex.IntegrationTest do
       assert {:ok, true} = run("category IN ('A', 'B') AND label LIKE '%world%'")
     end
   end
+
+  describe "list aggregation" do
+    @order %{
+      "cutoff_date" => "2024-03-10",
+      "region" => "north",
+      "fx" => %{"rate" => Decimal.new("2")},
+      "items" => [
+        %{
+          "amount" => Decimal.new("100"),
+          "price" => Decimal.new("90"),
+          "shipped_on" => "2024-03-01",
+          "status" => "shipped",
+          "fx" => %{"rate" => Decimal.new("3")},
+          "discounts" => [%{"value" => Decimal.new("5")}]
+        },
+        %{
+          "amount" => Decimal.new("40"),
+          "price" => Decimal.new("50"),
+          "shipped_on" => "2024-03-15",
+          "status" => "shipped",
+          "fx" => %{"rate" => Decimal.new("4")},
+          "discounts" => [%{"value" => Decimal.new("1")}, %{"value" => Decimal.new("2")}]
+        }
+      ]
+    }
+
+    test "SUM evaluates the expression per element, with ROOT reading the enclosing context" do
+      assert {:ok, result} =
+        run("SUM(items, CASE WHEN shipped_on <= ROOT.cutoff_date THEN amount ELSE 0 END)", @order)
+
+      assert Decimal.equal?(result, Decimal.new("100"))
+    end
+
+    test "bare paths read the element and ROOT paths read the root even when both hold the same key" do
+      # item 0: ROUND(90 / 3, 2) * 2 = 60, item 1: ROUND(50 / 4, 2) * 2 = 25
+      assert {:ok, result} = run("SUM(items, ROUND(price / fx.rate, 2) * ROOT.fx.rate)", @order)
+      assert Decimal.equal?(result, Decimal.new("85"))
+    end
+
+    test "COUNT, ANY and ALL" do
+      assert {:ok, count} = run("COUNT(items)", @order)
+      assert Decimal.equal?(count, Decimal.new("2"))
+
+      assert {:ok, count_shipped} = run("COUNT(items, shipped_on <= ROOT.cutoff_date)", @order)
+      assert Decimal.equal?(count_shipped, Decimal.new("1"))
+
+      assert {:ok, true} = run("ANY(items, status = 'shipped')", @order)
+      assert {:ok, false} = run("ALL(items, shipped_on <= ROOT.cutoff_date)", @order)
+    end
+
+    test "empty list" do
+      context = %{"items" => []}
+
+      assert {:ok, sum} = run("SUM(items, amount)", context)
+      assert Decimal.equal?(sum, Decimal.new("0"))
+      assert {:ok, count} = run("COUNT(items)", context)
+      assert Decimal.equal?(count, Decimal.new("0"))
+      assert {:ok, false} = run("ANY(items, TRUE)", context)
+      assert {:ok, true} = run("ALL(items, FALSE)", context)
+    end
+
+    test "dotted source" do
+      assert {:ok, result} = run("SUM(order.items, amount)", %{"order" => @order})
+      assert Decimal.equal?(result, Decimal.new("140"))
+    end
+
+    test "source that is not a list fails" do
+      context = Map.put(@order, "returns", nil)
+
+      assert {:error, "SUM source 'fx' must be a list of maps (got map)"} = run("SUM(fx, rate)", context)
+      assert {:error, "COUNT source 'region' must be a list of maps (got string)"} = run("COUNT(region)", context)
+      assert {:error, "ANY source 'returns' must be a list of maps (got nil)"} = run("ANY(returns, TRUE)", context)
+    end
+
+    test "malformed calls fail with the expected shape" do
+      assert {:error, "SUM requires (list_field, expression)"} = run("SUM(items)", @order)
+      assert {:error, "COUNT requires (list_field) or (list_field, condition)"} = run("COUNT(items, TRUE, 1)", @order)
+      assert {:error, "ANY requires (list_field, condition)"} = run("ANY('items', TRUE)", @order)
+      assert {:error, "ALL requires (list_field, condition)"} = run("ALL(items)", @order)
+    end
+
+    test "a nil element result in SUM fails with the element index" do
+      context = Map.update!(@order, "items", fn [first, second] -> [first, Map.put(second, "amount", nil)] end)
+
+      assert {:error, "SUM(items, …) element 1 evaluated to nil; return 0 for elements that contribute nothing"} =
+        run("SUM(items, amount)", context)
+    end
+
+    test "a nil condition result counts as false" do
+      context = Map.update!(@order, "items", fn items -> Enum.map(items, &Map.put(&1, "shipped_on", nil)) end)
+
+      assert {:ok, false} = run("ANY(items, shipped_on <= ROOT.cutoff_date)", context)
+    end
+
+    test "nested aggregation keeps the outermost ROOT" do
+      assert {:ok, result} =
+        run("SUM(items, SUM(discounts, CASE WHEN ROOT.region = 'north' THEN value ELSE 0 END))", @order)
+
+      assert Decimal.equal?(result, Decimal.new("8"))
+    end
+
+    test "ROOT is undefined outside an aggregation" do
+      assert {:error, "Unknown field: ROOT.cutoff_date (failed at 'ROOT')"} = run("ROOT.cutoff_date", @order)
+    end
+
+    test "an aggregation source through a list fails regardless of strict_lists" do
+      for strict <- [false, true] do
+        assert {:error, "Cannot read 'discounts' through list field 'items'" <> _} =
+          Dsqlex.eval("SUM(items.discounts, value)", @order, strict_lists: strict)
+      end
+    end
+
+    test "EVENT() inside an aggregation resolves per element and keeps cycle detection" do
+      formulas = %{
+        "ITEM.TAX" => "amount * 0.1",
+        "ORDER.TOTAL" => "SUM(items, EVENT(ORDER, TOTAL))"
+      }
+
+      assert {:ok, result} = run_with_events("SUM(items, EVENT(ITEM, TAX))", @order, formulas)
+      assert Decimal.equal?(result, Decimal.new("14"))
+
+      assert {:error, "Circular reference detected: ORDER.TOTAL"} =
+        run_with_events("EVENT(ORDER, TOTAL)", @order, formulas)
+    end
+  end
+
+  describe "strict_lists option" do
+    test "a dot path through a list fails and suggests a list function" do
+      assert {:error,
+              "Cannot read 'shipped_on' through list field 'items'; " <>
+                "use SUM(items, shipped_on) or another list function (COUNT, ANY, ALL)"} =
+        Dsqlex.eval("items.shipped_on <= cutoff_date", @order, strict_lists: true)
+    end
+
+    test "a list value in a scalar operation fails" do
+      message = "List value where a scalar was expected (items); use SUM, COUNT, ANY or ALL"
+
+      assert {:error, ^message} = Dsqlex.eval("CONCAT(items, '')", @order, strict_lists: true)
+      assert {:error, ^message} = Dsqlex.eval("items = 'x'", @order, strict_lists: true)
+    end
+
+    test "off keeps the implicit list traversal" do
+      assert {:ok, sum} = Dsqlex.eval("COALESCE(items.amount, 0)", @order, strict_lists: false)
+      assert Decimal.equal?(sum, Decimal.new("140"))
+      assert {:ok, "shippedshipped"} = Dsqlex.eval("CONCAT(items.status, '')", @order)
+    end
+
+    test "EVENT() over a list source still sums per element" do
+      resolver = mock_event_resolver(%{"ITEM.TAX" => "amount * 0.1"})
+
+      assert {:ok, result} =
+        Dsqlex.eval("EVENT(ITEM, TAX, items)", @order, event_resolver: resolver, strict_lists: true)
+
+      assert Decimal.equal?(result, Decimal.new("14"))
+    end
+  end
 end

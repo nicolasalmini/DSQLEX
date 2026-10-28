@@ -26,7 +26,44 @@ defmodule Dsqlex do
   - **Logical:** `AND`, `OR` (same-operator chaining allowed)
   - **Control flow:** `CASE WHEN ... THEN ... ELSE ... END`
   - **Functions:** `ROUND()`, `COALESCE()`, `UPPER()`, `LOWER()`, `ABS()`, `CONCAT()`
+  - **List aggregation:** `SUM(list, expr)`, `COUNT(list)`, `COUNT(list, cond)`, `ANY(list, cond)`, `ALL(list, cond)`
   - **Literals:** Numbers, strings, booleans, NULL
+
+  ## List Aggregation
+
+  `list` is a field (dot paths allowed) holding a list of maps. The second argument is
+  evaluated once per element: bare identifiers read the element, and `ROOT.<path>` reads
+  the context the expression was evaluated against (in nested aggregations `ROOT` is
+  still that outermost context). `ROOT` is undefined outside an aggregation.
+
+      context = %{
+        "cutoff_date" => "2024-03-10",
+        "items" => [
+          %{"amount" => Decimal.new("100"), "shipped_on" => "2024-03-01"},
+          %{"amount" => Decimal.new("40"), "shipped_on" => "2024-03-15"}
+        ]
+      }
+
+      Dsqlex.eval("SUM(items, CASE WHEN shipped_on <= ROOT.cutoff_date THEN amount ELSE 0 END)", context)
+      # => {:ok, Decimal.new("100")}
+
+  - `SUM` returns a Decimal (zero for an empty list). A nil element result is an error
+    naming the element index; return `0` for elements that contribute nothing.
+  - `COUNT(list)` counts elements, `COUNT(list, cond)` counts elements whose condition is truthy.
+  - `ANY` is false and `ALL` is true for an empty list.
+  - Conditions follow the usual truthiness: only `NULL` and `FALSE` are falsy.
+  - The list argument must resolve to a list of maps and must not itself pass through a list.
+
+  ## Strict Lists
+
+  Without the option, a dot path through a list (`items.amount`) maps the rest of the path
+  over the elements and sums the results when all are numeric, otherwise returns the list.
+  Pass `strict_lists: true` to make that an error that points at the list functions, and to
+  reject list values in comparisons, arithmetic, `ROUND`, `ABS`, `CONCAT`, `UPPER`, `LOWER`,
+  `LIKE`, `IN`, `LEAST` and `GREATEST`:
+
+      Dsqlex.eval("items.amount", context, strict_lists: true)
+      # => {:error, "Cannot read 'amount' through list field 'items'; use SUM(items, amount) or another list function (COUNT, ANY, ALL)"}
 
   ## Parentheses Rule
 
@@ -54,6 +91,10 @@ defmodule Dsqlex do
 
   - `expression` - A string containing the expression
   - `context` - A map of field names (strings) to values
+  - `opts` - Evaluation options:
+    - `:strict_lists` - reject dot paths through lists and list values in scalar
+      operations (default `false`)
+    - `:event_resolver` - function used to evaluate `EVENT()` calls
 
   ## Returns
 

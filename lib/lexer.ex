@@ -151,6 +151,10 @@ defmodule Dsqlex.Lexer do
       "LEAST"    -> {:function, :least}
       "GREATEST" -> {:function, :greatest}
       "EVENT"    -> {:function, :event}
+      "SUM"      -> {:function, :sum}
+      "COUNT"    -> {:function, :count}
+      "ANY"      -> {:function, :any}
+      "ALL"      -> {:function, :all}
       _ ->          {:identifier, word}
     end
   end
